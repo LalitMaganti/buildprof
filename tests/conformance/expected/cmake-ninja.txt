@@ -1,0 +1,20 @@
+tools:
+  ar
+  as
+  cc
+  cc1
+  cmake
+  collect2
+  ld
+  ninja
+  ranlib
+  sh
+edges:
+  ar -> ld [.a]
+  ar -> ranlib [.a]
+  as -> ar [.o]
+  as -> ld [.o]
+  cc -> as [.s]
+  cc1 -> as [.s]
+  ranlib -> ar [.a]
+  ranlib -> ld [.a]

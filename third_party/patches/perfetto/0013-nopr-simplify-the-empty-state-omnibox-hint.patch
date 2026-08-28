@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Sun, 23 Aug 2026 18:15:14 +0100
+Subject: nopr: simplify the empty-state omnibox hint
+
+---
+ ui/src/frontend/omnibox.ts | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/ui/src/frontend/omnibox.ts b/ui/src/frontend/omnibox.ts
+index e1db2d5a66..53d6bd9c65 100644
+--- a/ui/src/frontend/omnibox.ts
++++ b/ui/src/frontend/omnibox.ts
+@@ -259,7 +259,10 @@ export class Omnibox implements m.ClassComponent<OmniboxAttrs> {
+     }
+     return m(OmniboxWidget, {
+       value: omnibox.text,
+-      placeholder: `Search or type ${hints.join(', ')}`,
++      placeholder:
++        trace === undefined
++          ? "Type '>' for commands"
++          : `Search or type ${hints.join(', ')}`,
+       inputRef: OMNIBOX_INPUT_REF,
+       onInput: (value, _prev) => {
+         if (value === '>') {

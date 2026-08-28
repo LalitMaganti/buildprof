@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Sat, 22 Aug 2026 01:31:16 +0100
+Subject: nopr: widen track data overdraw to 3x the visible span
+
+Panning by a little over one screen width left the buffered bounds and
+showed a loading flash. Trades a larger fetch per query for smooth
+keyboard panning.
+---
+ ui/src/components/tracks/buffered_bounds.ts | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/ui/src/components/tracks/buffered_bounds.ts b/ui/src/components/tracks/buffered_bounds.ts
+index 49813406b2..6e0642edd4 100644
+--- a/ui/src/components/tracks/buffered_bounds.ts
++++ b/ui/src/components/tracks/buffered_bounds.ts
+@@ -27,6 +27,9 @@ import type {TimeSpan} from '../../base/time';
+  * The bounds are also quantized to the resolution to ensure consistent
+  * cache keys.
+  */
++/** Multiples of the visible duration to pre-load on each side. */
++const OVERDRAW_FACTOR = 3;
++
+ export class BufferedBounds {
+   private loadedStart: time = Time.ZERO;
+   private loadedEnd: time = Time.ZERO;
+@@ -51,8 +54,13 @@ export class BufferedBounds {
+       resolution !== this.loadedResolution;
+ 
+     if (needsUpdate) {
+-      // Pad each side by the visible duration (so total is 3x visible width)
+-      const padded = visibleSpan.pad(visibleSpan.duration);
++      // Pad each side by OVERDRAW_FACTOR x the visible duration. At 1x,
++      // panning by a little over one screen width leaves the loaded bounds
++      // and shows a loading flash; a wider skirt trades a larger fetch for
++      // keeping keyboard panning smooth.
++      const padded = visibleSpan.pad(
++        visibleSpan.duration * BigInt(OVERDRAW_FACTOR),
++      );
+       this.loadedStart = Time.fromRaw(
+         BIMath.quantFloor(padded.start, resolution),
+       );

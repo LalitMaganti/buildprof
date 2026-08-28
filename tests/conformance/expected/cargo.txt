@@ -1,0 +1,8 @@
+tools:
+  cargo
+  cc
+  collect2
+  ld
+  rustc
+edges:
+  rustc -> ld [.o]

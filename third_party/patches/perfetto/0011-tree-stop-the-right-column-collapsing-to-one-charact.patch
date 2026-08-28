@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Sat, 22 Aug 2026 15:38:37 +0100
+Subject: tree: stop the right column collapsing to one character
+
+The left cell was min-width:max-content and the right min-width:0, so a tree
+whose left cell holds a long path took the entire row and squeezed the value
+into a single-character column that broke one letter per line.
+
+Let the left column shrink and wrap, and give the right one a floor.
+---
+ ui/src/widgets/tree.scss | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/ui/src/widgets/tree.scss b/ui/src/widgets/tree.scss
+index 6bd940e054..4cc882ad99 100644
+--- a/ui/src/widgets/tree.scss
++++ b/ui/src/widgets/tree.scss
+@@ -18,7 +18,10 @@ $chevron-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'
+ 
+ .pf-tree {
+   display: grid;
+-  grid-template-columns: [left]auto [right]1fr;
++  // The right track needs a proportional floor, not just an absolute one: with
++  // a plain `auto 1fr`, a long left cell claims its full max-content width and
++  // leaves the value column at its minimum however wide the tree is.
++  grid-template-columns: [left]auto [right]minmax(30%, 1fr);
+   row-gap: 5px;
+ 
+   .pf-tree-node {
+@@ -31,7 +34,12 @@ $chevron-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'
+     .pf-tree-left {
+       grid-column: left;
+       background: inherit;
+-      min-width: max-content;
++      // Not `max-content`: a key is normally a short word, but a tree is also
++      // used for lists whose left cell is a full path. Refusing to shrink then
++      // let the left column take the whole row, squeezing the right one to a
++      // single character and breaking its text one letter per line.
++      min-width: 0;
++      overflow-wrap: anywhere;
+       border-radius: $border-radius 0 0 $border-radius;
+       font-weight: bolder;
+     }
+@@ -43,7 +51,9 @@ $chevron-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'
+       border-radius: 0 $border-radius $border-radius 0;
+       overflow-wrap: break-word; // Break words if overflowing
+       white-space: pre-wrap;
+-      min-width: 0; // Allow column to shrink past content if container is thin
++      // A floor rather than 0. Shrinking past a few characters does not make
++      // the value readable, it just turns it vertical.
++      min-width: 6ch;
+     }
+ 
+     .pf-tree-gutter {

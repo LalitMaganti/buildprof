@@ -1,0 +1,12 @@
+[project]
+name = "buildprof-tests"
+version = "0.0.0"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+  "perfetto>=0.57,<0.58",
+  "pytest>=8,<9",
+]

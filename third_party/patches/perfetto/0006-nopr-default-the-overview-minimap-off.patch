@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Sat, 22 Aug 2026 01:39:48 +0100
+Subject: nopr: default the overview minimap off
+
+For a build trace the minimap is a solid block conveying nothing; the
+Parallelism counter is the overview that reads.
+---
+ ui/src/core_plugins/dev.perfetto.Timeline/index.ts | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/ui/src/core_plugins/dev.perfetto.Timeline/index.ts b/ui/src/core_plugins/dev.perfetto.Timeline/index.ts
+index 9b0b96b1ed..8ce24def77 100644
+--- a/ui/src/core_plugins/dev.perfetto.Timeline/index.ts
++++ b/ui/src/core_plugins/dev.perfetto.Timeline/index.ts
+@@ -45,7 +45,10 @@ export default class TimelinePlugin implements PerfettoPlugin {
+       id: 'overviewVisible',
+       name: 'Overview Panel',
+       description: 'Show the panel providing an overview of the trace',
+-      defaultValue: true,
++      // Off by default in Buildprof: the minimap summarises whole-trace
++      // activity, which for a build is a solid block that conveys nothing.
++      // The Parallelism counter is the overview that actually reads.
++      defaultValue: false,
+     });
+   }
+ 

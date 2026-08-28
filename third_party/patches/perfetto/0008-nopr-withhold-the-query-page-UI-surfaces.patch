@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Sat, 22 Aug 2026 02:08:42 +0100
+Subject: nopr: withhold the query page UI surfaces
+
+CoreCommands depends on QueryPage for the standard keybindings, so the
+plugin stays registered, but its sidebar entry, ':' omnibox mode and
+switch-to-query command are hidden until we decide how querying should
+be presented.
+---
+ ui/src/plugins/dev.perfetto.QueryPage/index.ts | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/ui/src/plugins/dev.perfetto.QueryPage/index.ts b/ui/src/plugins/dev.perfetto.QueryPage/index.ts
+index 31ff357d1b..d78903e2a3 100644
+--- a/ui/src/plugins/dev.perfetto.QueryPage/index.ts
++++ b/ui/src/plugins/dev.perfetto.QueryPage/index.ts
+@@ -312,7 +312,13 @@ export default class QueryPagePlugin implements PerfettoPlugin {
+       debouncedSave();
+     }
+ 
+-    trace.omnibox.registerMode({
++    // Buildprof: the ':' SQL mode, its command and the sidebar entry are
++    // withheld until we have decided how querying should be presented. The
++    // plugin itself stays registered because CoreCommands depends on it for
++    // the standard keybindings.
++    const BUILDPROF_EXPOSE_QUERY_UI = false;
++
++    BUILDPROF_EXPOSE_QUERY_UI && trace.omnibox.registerMode({
+       trigger: ':',
+       hint: "':' for SQL query",
+       placeholder:
+@@ -329,7 +335,7 @@ export default class QueryPagePlugin implements PerfettoPlugin {
+     });
+ 
+     // Add a command to activate the query mode
+-    trace.commands.registerCommand({
++    BUILDPROF_EXPOSE_QUERY_UI && trace.commands.registerCommand({
+       id: 'dev.perfetto.SwitchToQueryMode',
+       name: 'Switch to query mode',
+       callback: () => trace.omnibox.activateRegisteredMode(':'),
+@@ -354,7 +360,7 @@ export default class QueryPagePlugin implements PerfettoPlugin {
+         }),
+     });
+ 
+-    trace.sidebar.addMenuItem({
++    BUILDPROF_EXPOSE_QUERY_UI && trace.sidebar.addMenuItem({
+       section: 'current_trace',
+       text: 'Query (SQL)',
+       href: '#!/query',

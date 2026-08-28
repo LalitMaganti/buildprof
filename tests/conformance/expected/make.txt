@@ -1,0 +1,15 @@
+tools:
+  ar
+  as
+  cc
+  cc1
+  collect2
+  ld
+  make
+edges:
+  ar -> ld [.a]
+  as -> ar [.o]
+  as -> ld [.o]
+  cc -> as [.s]
+  cc -> ld [.o]
+  cc1 -> as [.s]

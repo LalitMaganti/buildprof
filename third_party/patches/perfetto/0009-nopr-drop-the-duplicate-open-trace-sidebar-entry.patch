@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Sat, 22 Aug 2026 02:20:16 +0100
+Subject: nopr: drop the duplicate open-trace sidebar entry
+
+Buildprof contributes its own entry in the same section; the Mod+O
+command is unaffected.
+---
+ .../dev.perfetto.CoreCommands/index.ts           | 16 ++++++++++------
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
+index fbbda80688..5bc2cd13cb 100644
+--- a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
++++ b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
+@@ -324,12 +324,16 @@ export default class CoreCommands implements PerfettoPlugin {
+       },
+       defaultHotkey: '!Mod+O',
+     });
+-    ctx.sidebar.addMenuItem({
+-      commandId: OPEN_TRACE_COMMAND_ID,
+-      section: 'trace_files',
+-      icon: 'folder_open',
+-      sortOrder: 1,
+-    });
++    // Buildprof contributes its own entry in this section; two buttons doing
++    // the same thing looked like a bug. The Mod+O command above is unaffected.
++    if (false as boolean) {
++      ctx.sidebar.addMenuItem({
++        commandId: OPEN_TRACE_COMMAND_ID,
++        section: 'trace_files',
++        icon: 'folder_open',
++        sortOrder: 1,
++      });
++    }
+ 
+     ctx.commands.registerCommand({
+       id: 'dev.perfetto.CloseTrace',

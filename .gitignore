@@ -1,0 +1,18 @@
+/target/
+.pytest_cache/
+__pycache__/
+.venv/
+*.pftrace
+*.buildtrace
+*.buildprof
+!third_party/overlays/perfetto/ui/src/plugins/dev.perfetto.Buildprof/
+.dev-container-id
+third_party/src/
+/design-docs/
+/.synth/
+/.pnpm-store/
+/docs/
+
+# Local article capture tooling and intermediate outputs.
+/tools/capture_blog_*.mjs
+/artifacts/blog/

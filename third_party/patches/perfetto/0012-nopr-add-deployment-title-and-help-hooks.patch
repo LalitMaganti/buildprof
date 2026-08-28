@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: buildprof-perfetto <buildprof-perfetto@localhost>
+Date: Sun, 23 Aug 2026 17:30:32 +0100
+Subject: nopr: add deployment title and help hooks
+
+---
+ ui/src/core/embedder/embedder.ts                     |  6 ++++++
+ .../core_plugins/dev.perfetto.CoreCommands/index.ts  |  2 +-
+ ui/src/frontend/ui_main.ts                           | 12 ++++++------
+ 3 files changed, 13 insertions(+), 7 deletions(-)
+
+diff --git a/ui/src/core/embedder/embedder.ts b/ui/src/core/embedder/embedder.ts
+index 2dc9b8658c..fa95640419 100644
+--- a/ui/src/core/embedder/embedder.ts
++++ b/ui/src/core/embedder/embedder.ts
+@@ -55,6 +55,12 @@ export interface BrandingBadge {
+  * vs a third-party embedding).
+  */
+ export interface Embedder {
++  // Optional deployment name used in the browser tab title.
++  readonly appTitle?: string;
++
++  // Optional deployment-owned replacement for the standard help popup.
++  readonly showHelp?: () => void;
++
+   // Returns the Google Analytics measurement ID, or undefined if analytics
+   // should not be enabled for this embedder.
+   readonly analyticsId: string | undefined;
+diff --git a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
+index 5bc2cd13cb..64fd304875 100644
+--- a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
++++ b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
+@@ -156,7 +156,7 @@ export default class CoreCommands implements PerfettoPlugin {
+     ctx.commands.registerCommand({
+       id: 'dev.perfetto.ShowHelp',
+       name: 'Show help',
+-      callback: () => toggleHelp(),
++      callback: () => (ctx.embedder.showHelp ?? toggleHelp)(),
+       defaultHotkey: '?',
+     });
+ 
+diff --git a/ui/src/frontend/ui_main.ts b/ui/src/frontend/ui_main.ts
+index 7ad231f40d..3bd0d8bf3f 100644
+--- a/ui/src/frontend/ui_main.ts
++++ b/ui/src/frontend/ui_main.ts
+@@ -31,10 +31,6 @@ const showStatusBarFlag = featureFlags.register({
+   description: 'Enable status bar at the bottom of the window',
+   defaultValue: true,
+ });
+-// Read the page title set by index.html. This can be overridden at build time
+-// via --title (e.g. to distinguish multiple dev server instances).
+-const APP_TITLE = document.title || 'Perfetto UI';
+-
+ // This components gets destroyed and recreated every time the current trace
+ // changes. Note that in the beginning the current trace is undefined.
+ export class UiMain implements m.ClassComponent {
+@@ -42,12 +38,16 @@ export class UiMain implements m.ClassComponent {
+   constructor() {
+     const app = AppImpl.instance;
+     const trace = app.trace;
++    // AppImpl is initialized before UiMain is constructed, but not necessarily
++    // before this module is evaluated by the development server.
++    const appTitle =
++      app.embedder.appTitle ?? (document.title || 'Perfetto UI');
+ 
+     // Update the title bar to reflect the loaded trace's title
+     if (trace) {
+-      document.title = `${trace.traceInfo.traceTitle || 'Trace'} - ${APP_TITLE}`;
++      document.title = `${trace.traceInfo.traceTitle || 'Trace'} - ${appTitle}`;
+     } else {
+-      document.title = APP_TITLE;
++      document.title = appTitle;
+     }
+   }
+ 

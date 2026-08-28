@@ -1,0 +1,17 @@
+tools:
+  ar
+  as
+  cc
+  cc1
+  collect2
+  gcc-ar
+  ld
+  ninja
+  rm
+  sh
+edges:
+  ar -> ld [.a]
+  as -> ar [.o]
+  as -> ld [.o]
+  cc -> as [.s]
+  cc1 -> as [.s]

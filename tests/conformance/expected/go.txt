@@ -1,0 +1,9 @@
+tools:
+  asm
+  compile
+  go
+  link
+edges:
+  compile -> go [.a]
+  compile -> link [.a]
+  go -> link [.a]

@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Fri, 21 Aug 2026 22:11:33 +0100
+Subject: nopr: register containment_layout trace_processor plugin
+
+Adds the build and registration hooks for the containment_layout SQLite
+module, whose sources are supplied as a Buildprof overlay.
+---
+ src/trace_processor/BUILD.gn                | 1 +
+ src/trace_processor/trace_processor_impl.cc | 2 ++
+ 2 files changed, 3 insertions(+)
+
+diff --git a/src/trace_processor/BUILD.gn b/src/trace_processor/BUILD.gn
+index 26290fba02..7ae63e27f2 100644
+--- a/src/trace_processor/BUILD.gn
++++ b/src/trace_processor/BUILD.gn
+@@ -259,6 +259,7 @@ if (enable_perfetto_trace_processor_sqlite) {
+       "plugins/perf_text",
+       "plugins/perfetto_manifest",
+       "plugins/pprof_functions",
++      "plugins/containment_layout",
+       "plugins/slice_mipmap_operator",
+       "plugins/span_join_operator",
+       "plugins/sql_stats_table",
+diff --git a/src/trace_processor/trace_processor_impl.cc b/src/trace_processor/trace_processor_impl.cc
+index e44a732ebb..40a760af39 100644
+--- a/src/trace_processor/trace_processor_impl.cc
++++ b/src/trace_processor/trace_processor_impl.cc
+@@ -110,6 +110,7 @@
+ #include "src/trace_processor/plugins/experimental_annotated_stack/experimental_annotated_stack.h"
+ #include "src/trace_processor/plugins/experimental_flamegraph/experimental_flamegraph.h"
+ #include "src/trace_processor/plugins/experimental_flat_slice/experimental_flat_slice.h"
++#include "src/trace_processor/plugins/containment_layout/containment_layout.h"
+ #include "src/trace_processor/plugins/experimental_slice_layout/experimental_slice_layout.h"
+ #include "src/trace_processor/plugins/flamegraph/flamegraph_function.h"
+ #include "src/trace_processor/plugins/graph_scan/graph_scan.h"
+@@ -360,6 +361,7 @@ TraceProcessorImpl::TraceProcessorImpl(
+   experimental_annotated_stack::RegisterPlugin();
+   experimental_flamegraph::RegisterPlugin();
+   experimental_flat_slice::RegisterPlugin();
++  containment_layout::RegisterPlugin();
+   experimental_slice_layout::RegisterPlugin();
+   flamegraph::RegisterPlugin();
+   graph_scan::RegisterPlugin();

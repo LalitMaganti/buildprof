@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Sat, 22 Aug 2026 04:14:51 +0100
+Subject: datagrid: treat an empty groupBy as not pivoted when building the
+ query
+
+The renderer gates pivot mode on groupBy.length > 0 but the query builder gated
+it on the pivot object existing, so a pivot with an empty groupBy drew a flat
+grid while asking for a pivot with no columns: SELECT  FROM (...).
+
+An empty groupBy is the only way to clear a controlled pivot -- applying one is
+'if (pivot) this.pivot = pivot', which cannot see undefined -- so it has to mean
+not pivoted in both places.
+---
+ ui/src/components/widgets/datagrid/datagrid.ts | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/ui/src/components/widgets/datagrid/datagrid.ts b/ui/src/components/widgets/datagrid/datagrid.ts
+index 56ebda9686..38a414e5be 100644
+--- a/ui/src/components/widgets/datagrid/datagrid.ts
++++ b/ui/src/components/widgets/datagrid/datagrid.ts
+@@ -776,7 +776,13 @@ export class DataGrid implements m.ClassComponent<DataGridAttrs> {
+           .sort((a, b) => (a.alias < b.alias ? -1 : a.alias > b.alias ? 1 : 0)),
+       };
+       return flatModel;
+-    } else if (this.pivot) {
++    } else if (this.pivot && this.pivot.groupBy.length > 0) {
++      // Same predicate as `isPivotMode` above. Gating the query on the pivot
++      // object merely existing, while the renderer gates on it having groupBy
++      // columns, made an empty `groupBy` render as a flat grid but query as a
++      // pivot with no columns at all -- `SELECT  FROM (...)`. An empty groupBy
++      // is the only way a controlled pivot can be cleared, since applying it
++      // is `if (pivot) this.pivot = pivot`, so it has to mean "not pivoted".
+       // Extract sort from pivot columns (groupBy or aggregates)
+       const sortedGroupBy = this.pivot.groupBy.find((c) => c.sort);
+       const sortedAggregate = (this.pivot.aggregates ?? []).find((c) => c.sort);

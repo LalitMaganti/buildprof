@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Thu, 6 Aug 2026 16:10:16 +0100
+Subject: nopr: resolve imports from symlinked UI overlays
+
+---
+ ui/vite.config.mjs | 53 ++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 53 insertions(+)
+
+diff --git a/ui/vite.config.mjs b/ui/vite.config.mjs
+index 88698c98b3..0bcf68ee90 100644
+--- a/ui/vite.config.mjs
++++ b/ui/vite.config.mjs
+@@ -184,6 +184,58 @@ export function pluginPerfettoVersion() {
+   });
+ }
+ 
++// Re-anchor imports from deployment-owned files symlinked into ui/src.
++// Rollup resolves the importer to its real path outside this checkout before
++// resolving that file's relative imports. Map it back to the symlink location
++// so those imports resolve against Perfetto's source tree.
++function pluginOverlayDepResolution() {
++  let symlinkMap;
++
++  function refresh() {
++    const map = new Map();
++    function walk(dir) {
++      let entries;
++      try {
++        entries = fs.readdirSync(dir, {withFileTypes: true});
++      } catch (_) {
++        return;
++      }
++      for (const entry of entries) {
++        const full = path.join(dir, entry.name);
++        if (entry.isSymbolicLink()) {
++          try {
++            const real = fs.realpathSync(full);
++            if (!real.startsWith(ROOT_DIR + path.sep)) map.set(real, full);
++          } catch (_) {}
++        } else if (entry.isDirectory()) {
++          walk(full);
++        }
++      }
++    }
++    walk(SRC);
++    symlinkMap = map;
++    return map;
++  }
++
++  return {
++    name: 'perfetto:overlay-dep-resolution',
++    enforce: 'pre',
++    async resolveId(source, importer) {
++      if (!importer || source.includes('\0')) return null;
++      if (importer.startsWith(ROOT_DIR + path.sep)) return null;
++      const importerFile = importer.split('?')[0];
++      let map = symlinkMap ?? refresh();
++      let symlinkImporter = map.get(importerFile);
++      if (!symlinkImporter) {
++        map = refresh();
++        symlinkImporter = map.get(importerFile);
++        if (!symlinkImporter) return null;
++      }
++      return this.resolve(source, symlinkImporter, {skipSelf: true});
++    },
++  };
++}
++
+ function pluginGenRelativeImports() {
+   return {
+     name: 'perfetto:gen-relative-imports',
+@@ -285,6 +337,7 @@ export default defineConfig(({command}) => {
+       // Compiles *.grammar files (lezer parser definitions) on import. Replaces
+       // the old "manually run lezer-generator and commit gen/*.js" workflow.
+       lezer(),
++      pluginOverlayDepResolution(),
+       pluginGenRelativeImports(),
+       ...(isBuild ? [] : [pluginGenWasmGlueEsm()]),
+       ...(NO_SOURCE_MAPS ? [] : [pluginEmbedMinimalSourceMap()]),

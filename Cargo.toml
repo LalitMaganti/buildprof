@@ -1,0 +1,29 @@
+[package]
+name = "buildprof"
+version = "0.1.0"
+description = "Record Linux build processes and file access as a Perfetto trace"
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://buildprof.lalitm.com"
+documentation = "https://docs.rs/buildprof"
+repository = "https://github.com/lalitmaganti/buildprof"
+keywords = ["build", "profiling", "perfetto", "tracing"]
+categories = ["command-line-utilities", "development-tools::profiling"]
+edition = "2024"
+rust-version = "1.85"
+include = [
+    "/src/**",
+    "/AUTHORS",
+    "/CHANGELOG.md",
+    "/Cargo.lock",
+    "/Cargo.toml",
+    "/LICENSE",
+    "/README.md",
+]
+
+[dependencies]
+analyzeme = "12.0.3"
+usage = { package = "usage-rs", version = "6" }
+libc = "0.2.175"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

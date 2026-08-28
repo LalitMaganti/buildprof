@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Sat, 22 Aug 2026 01:47:46 +0100
+Subject: nopr: hold the previous selection panel across the resolve gap
+
+Clicking a slice empties the selection first, because the timeline's
+area-selection region treats any click a track did not intercept as a
+deselect, and the replacement only lands once the track has resolved its
+details asynchronously. Rendering the empty state in that gap made every
+click flash 'Nothing selected'.
+---
+ .../current_selection_tab.ts                  | 45 ++++++++++++++++++-
+ 1 file changed, 43 insertions(+), 2 deletions(-)
+
+diff --git a/ui/src/core_plugins/dev.perfetto.Timeline/current_selection_tab.ts b/ui/src/core_plugins/dev.perfetto.Timeline/current_selection_tab.ts
+index acd976afd1..b8d49dbe13 100644
+--- a/ui/src/core_plugins/dev.perfetto.Timeline/current_selection_tab.ts
++++ b/ui/src/core_plugins/dev.perfetto.Timeline/current_selection_tab.ts
+@@ -34,8 +34,21 @@ export interface CurrentSelectionTabAttrs {
+   readonly trace: TraceImpl;
+ }
+ 
++// How long an emptied selection keeps showing the previous panel before
++// giving up and saying nothing is selected.
++//
++// Clicking a slice empties the selection first -- the timeline's
++// area-selection region treats any click a track did not intercept as a
++// deselect -- and the replacement only lands once the track has resolved its
++// details asynchronously. Rendering the empty state in that gap makes every
++// click flash "Nothing selected". Holding the previous content bridges it.
++const SELECTION_GRACE_MS = 300;
++
+ export class CurrentSelectionTab implements m.ClassComponent<CurrentSelectionTabAttrs> {
+   private readonly fadeContext = new FadeContext();
++  private lastContent?: m.Children;
++  private lastContentTime = 0;
++  private graceTimer?: ReturnType<typeof setTimeout>;
+ 
+   view({attrs}: m.Vnode<CurrentSelectionTabAttrs>): m.Children {
+     const section = this.renderCurrentSelectionTabContent(attrs.trace);
+@@ -50,9 +63,37 @@ export class CurrentSelectionTab implements m.ClassComponent<CurrentSelectionTab
+     const selection = trace.selection.selection;
+     const selectionKind = selection.kind;
+ 
++    if (selectionKind !== 'empty') {
++      const section = this.renderNonEmptySelection(trace, selection);
++      // Remember whatever was last shown, so the next empty gap can reuse it.
++      this.lastContent = section.content;
++      this.lastContentTime = performance.now();
++      return section;
++    }
++
++    const age = performance.now() - this.lastContentTime;
++    if (this.lastContent !== undefined && age < SELECTION_GRACE_MS) {
++      // Schedule the redraw that will show the empty state if no new selection
++      // arrives; without it the stale content would linger until some other
++      // event happens to trigger a draw.
++      clearTimeout(this.graceTimer);
++      this.graceTimer = setTimeout(
++        () => m.redraw(),
++        SELECTION_GRACE_MS - age + 16,
++      );
++      return {isLoading: true, content: this.lastContent};
++    }
++
++    this.lastContent = undefined;
++    return this.renderEmptySelection('Nothing selected');
++  }
++
++  private renderNonEmptySelection(
++    trace: TraceImpl,
++    selection: Exclude<TraceImpl['selection']['selection'], {kind: 'empty'}>,
++  ) {
++    const selectionKind = selection.kind;
+     switch (selectionKind) {
+-      case 'empty':
+-        return this.renderEmptySelection('Nothing selected');
+       case 'track':
+         return this.renderTrackSelection(trace, selection);
+       case 'track_event':

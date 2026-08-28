@@ -1,0 +1,320 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Thu, 6 Aug 2026 17:34:53 +0100
+Subject: nopr: add deployment sidebar customization hooks
+
+---
+ ui/src/core/app_impl.ts          |   4 +-
+ ui/src/core/embedder/embedder.ts |  10 +++
+ ui/src/frontend/topbar.scss      | 105 +++++++++++++++++++++++++++++++
+ ui/src/frontend/topbar.ts        |  43 +++++++++++++
+ ui/src/frontend/views/sidebar.ts |  26 +++++---
+ ui/src/public/sidebar.ts         |   4 ++
+ 6 files changed, 180 insertions(+), 12 deletions(-)
+
+diff --git a/ui/src/core/app_impl.ts b/ui/src/core/app_impl.ts
+index 0bbb751ed9..030f124f17 100644
+--- a/ui/src/core/app_impl.ts
++++ b/ui/src/core/app_impl.ts
+@@ -154,11 +154,11 @@ export class AppImpl implements App {
+     this.testingMode =
+       self.location !== undefined &&
+       self.location.search.indexOf('testing=1') >= 0;
++    this.embedder = createEmbedder();
+     this.sidebar = new SidebarManagerImpl({
+-      disabled: this.embeddedMode,
++      disabled: this.embeddedMode || this.embedder.navigationMode === 'topbar',
+       hidden: this.initialRouteArgs.hideSidebar,
+     });
+-    this.embedder = createEmbedder();
+     this.plugins = new PluginManagerImpl(this.embedder.defaultPlugins);
+     this.analytics = initAnalytics(
+       this.testingMode,
+diff --git a/ui/src/core/embedder/embedder.ts b/ui/src/core/embedder/embedder.ts
+index 3fb965daa7..2dc9b8658c 100644
+--- a/ui/src/core/embedder/embedder.ts
++++ b/ui/src/core/embedder/embedder.ts
+@@ -75,4 +75,14 @@ export interface Embedder {
+ 
+   // Optional deployment-owned sidebar wordmark replacing Perfetto's.
+   readonly brandLogo?: {readonly src: string; readonly alt?: string};
++
++  // Optional compact navigation for focused deployments. Registered sidebar
++  // actions are shown in the top bar and the persistent sidebar is removed.
++  readonly navigationMode?: 'sidebar' | 'topbar';
++
++  // Optional deployment-specific sidebar customization.
++  readonly documentationUrl?: string;
++  readonly reportBugUrl?: string;
++  readonly showConvertToJson?: boolean;
++  readonly showMetatrace?: boolean;
+ }
+diff --git a/ui/src/frontend/topbar.scss b/ui/src/frontend/topbar.scss
+index 1cf62a3251..90e8c9594c 100644
+--- a/ui/src/frontend/topbar.scss
++++ b/ui/src/frontend/topbar.scss
+@@ -26,6 +26,92 @@
+   align-items: center;
+   border-bottom: 1px solid var(--pf-color-border);
+ 
++  &--compact-navigation {
++    padding-left: 0;
++    padding-right: 0;
++
++    > .pf-omnibox {
++      width: 100%;
++    }
++  }
++
++  &__navigation {
++    position: absolute;
++    left: 10px;
++    height: 100%;
++    display: flex;
++    align-items: center;
++    gap: 12px;
++  }
++
++  &__brand {
++    display: flex;
++    align-items: center;
++
++    img {
++      display: block;
++      width: 138px;
++      max-height: 30px;
++    }
++
++    .pf-theme-provider--dark & img {
++      filter: var(--pf-img-filter);
++    }
++  }
++
++  &__navigation-actions {
++    display: flex;
++    align-items: center;
++    gap: 2px;
++    margin: 0;
++    padding: 0;
++
++    li.pf-sidebar__item {
++      list-style: none;
++      padding: 0;
++
++      > button,
++      > a {
++        min-height: 30px;
++        padding: 4px 9px;
++        border: 0;
++        border-radius: $border-radius;
++        background: transparent;
++        color: var(--pf-color-text);
++        display: flex;
++        align-items: center;
++        gap: 5px;
++        font: inherit;
++        cursor: pointer;
++
++        &:hover {
++          background: color_hover(transparent);
++        }
++      }
++    }
++
++    .pf-sidebar__button-icon {
++      font-size: 18px;
++    }
++
++    button.pf-topbar-icon-only,
++    a.pf-topbar-icon-only {
++      box-sizing: border-box;
++      width: 30px;
++      height: 30px;
++      min-height: 30px;
++      padding: 4px;
++      flex: 0 0 30px;
++      justify-content: center;
++      font-size: 0 !important;
++      gap: 0;
++    }
++
++    a.pf-topbar-icon-only .pf-sidebar__external-link-icon {
++      display: none;
++    }
++  }
++
+   &--hide-sidebar {
+     .pf-omnibox--query-mode {
+       padding-left: 48px;
+@@ -53,6 +139,25 @@
+   }
+ }
+ 
++@media (max-width: 1100px) {
++  .pf-topbar {
++    &--compact-navigation {
++      padding-left: 0;
++      padding-right: 0;
++    }
++
++    &__brand img {
++      width: 112px;
++    }
++
++    &__navigation-actions li.pf-sidebar__item > button,
++    &__navigation-actions li.pf-sidebar__item > a {
++      font-size: 0;
++      gap: 0;
++    }
++  }
++}
++
+ .pf-omnibox {
+   @include transition(0.25s);
+   width: 90%;
+diff --git a/ui/src/frontend/topbar.ts b/ui/src/frontend/topbar.ts
+index 88e090c0f9..c6eecf0fc9 100644
+--- a/ui/src/frontend/topbar.ts
++++ b/ui/src/frontend/topbar.ts
+@@ -25,6 +25,7 @@ import {Button} from '../widgets/button';
+ import {Intent} from '../widgets/common';
+ import {Popup, PopupPosition} from '../widgets/popup';
+ import {Omnibox} from './omnibox';
++import {SidebarItem} from './views/sidebar_item';
+ 
+ class TraceErrorIcon implements m.ClassComponent<TraceImplAttrs> {
+   private tracePopupErrorDismissed = false;
+@@ -100,6 +101,44 @@ function renderSidePanelToggle(mgr: SidePanelManagerImpl): m.Children {
+   });
+ }
+ 
++function renderTopbarNavigation(app: AppImpl): m.Children {
++  if (app.embedder.navigationMode !== 'topbar') return undefined;
++  const logo = app.embedder.brandLogo;
++  const items = app.sidebar.menuItems
++    .valuesAsArray()
++    .filter(
++      (item) =>
++        item.topbar === true && (item.topbarPosition ?? 'left') === 'left',
++    )
++    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
++  return m(
++    'nav.pf-topbar__navigation',
++    logo &&
++      m(
++        '.pf-topbar__brand',
++        m('img', {src: logo.src, alt: logo.alt}),
++      ),
++    m(
++      'ul.pf-topbar__navigation-actions',
++      items.map((item) => m(SidebarItem, {key: item.id, app, item})),
++    ),
++  );
++}
++
++function renderTopbarRightNavigation(app: AppImpl): m.Children {
++  if (app.embedder.navigationMode !== 'topbar') return undefined;
++  const items = app.sidebar.menuItems
++    .valuesAsArray()
++    .filter(
++      (item) => item.topbar === true && item.topbarPosition === 'right',
++    )
++    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
++  return m(
++    'ul.pf-topbar__navigation-actions',
++    items.map((item) => m(SidebarItem, {key: item.id, app, item})),
++  );
++}
++
+ export class Topbar implements m.ClassComponent<TopbarAttrs> {
+   view({attrs}: m.Vnode<TopbarAttrs>) {
+     const {trace} = attrs;
+@@ -109,11 +148,15 @@ export class Topbar implements m.ClassComponent<TopbarAttrs> {
+       {
+         className: classNames(
+           !app.sidebar.visible && 'pf-topbar--hide-sidebar',
++          app.embedder.navigationMode === 'topbar' &&
++            'pf-topbar--compact-navigation',
+         ),
+       },
++      renderTopbarNavigation(app),
+       m(Omnibox, {trace}),
+       m(
+         '.pf-topbar__right',
++        renderTopbarRightNavigation(app),
+         trace && m(TraceErrorIcon, {trace}),
+         renderSidePanelToggle(app.sidePanel),
+       ),
+diff --git a/ui/src/frontend/views/sidebar.ts b/ui/src/frontend/views/sidebar.ts
+index 52df861b34..8ec791e6f0 100644
+--- a/ui/src/frontend/views/sidebar.ts
++++ b/ui/src/frontend/views/sidebar.ts
+@@ -237,14 +237,16 @@ function getConvertTraceItems(trace: TraceImpl): SidebarMenuItemInternal[] {
+     ? false
+     : 'Cannot download external trace';
+ 
+-  items.push({
+-    id: 'perfetto.ConvertToJson',
+-    section: 'convert_trace',
+-    text: 'Convert to .json',
+-    action: async () => await convertTraceToJson(trace),
+-    icon: 'file_download',
+-    disabled: downloadDisabled,
+-  });
++  if (AppImpl.instance.embedder.showConvertToJson !== false) {
++    items.push({
++      id: 'perfetto.ConvertToJson',
++      section: 'convert_trace',
++      text: 'Convert to .json',
++      action: async () => await convertTraceToJson(trace),
++      icon: 'file_download',
++      disabled: downloadDisabled,
++    });
++  }
+ 
+   if (trace.traceInfo.hasFtrace) {
+     items.push({
+@@ -276,7 +278,9 @@ function getSupportGlobalItems(app: App): SidebarMenuItemInternal[] {
+       id: 'perfetto.Documentation',
+       section: 'support',
+       text: 'Documentation',
+-      href: 'https://perfetto.dev/docs',
++      href:
++        AppImpl.instance.embedder.documentationUrl ??
++        'https://perfetto.dev/docs',
+       icon: 'find_in_page',
+     },
+     {
+@@ -284,7 +288,8 @@ function getSupportGlobalItems(app: App): SidebarMenuItemInternal[] {
+       section: 'support',
+       sortOrder: 4,
+       text: 'Report a bug',
+-      href: getBugReportUrl(app),
++      href:
++        AppImpl.instance.embedder.reportBugUrl ?? getBugReportUrl(app),
+       icon: 'bug_report',
+     },
+   ];
+@@ -292,6 +297,7 @@ function getSupportGlobalItems(app: App): SidebarMenuItemInternal[] {
+ 
+ // Returns trace-specific menu items for the 'support' section.
+ function getSupportTraceItems(trace: TraceImpl): SidebarMenuItemInternal[] {
++  if (AppImpl.instance.embedder.showMetatrace === false) return [];
+   return [
+     {
+       id: 'perfetto.Metatrace',
+diff --git a/ui/src/public/sidebar.ts b/ui/src/public/sidebar.ts
+index 43b53c82b4..e7da782b68 100644
+--- a/ui/src/public/sidebar.ts
++++ b/ui/src/public/sidebar.ts
+@@ -64,6 +64,10 @@ export type SidebarMenuItem = {
+   readonly section: SidebarSections;
+   readonly sortOrder?: number;
+ 
++  // Show this item in embedders which use the compact top-bar navigation.
++  readonly topbar?: boolean;
++  readonly topbarPosition?: 'left' | 'right';
++
+   // The properties below can be mutated by passing a callback rather than a
+   // direct value. The callback is invoked on every render frame, keep it cheap.
+   // readonly text: string | (() => string);

@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Buildprof Authors <buildprof@localhost>
+Date: Thu, 6 Aug 2026 16:40:14 +0100
+Subject: nopr: add deployment home page and brand logo hooks
+
+---
+ ui/src/core/embedder/embedder.ts | 13 +++++++++++++
+ ui/src/frontend/index.ts         |  6 +++++-
+ ui/src/frontend/views/sidebar.ts | 10 +++++++++-
+ 3 files changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/ui/src/core/embedder/embedder.ts b/ui/src/core/embedder/embedder.ts
+index bdde74c313..3fb965daa7 100644
+--- a/ui/src/core/embedder/embedder.ts
++++ b/ui/src/core/embedder/embedder.ts
+@@ -12,6 +12,13 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++import type m from 'mithril';
++import type {App} from '../../public/app';
++
++export interface HomePageAttrs {
++  readonly app: App;
++}
++
+ /**
+  * Configuration for an embedder-provided default extension server.
+  */
+@@ -62,4 +69,10 @@ export interface Embedder {
+ 
+   // Returns the list of plugin IDs that should be enabled by default.
+   readonly defaultPlugins: ReadonlyArray<string>;
++
++  // Optional deployment-owned component rendered at route '/'.
++  readonly homePage?: m.ComponentTypes<HomePageAttrs>;
++
++  // Optional deployment-owned sidebar wordmark replacing Perfetto's.
++  readonly brandLogo?: {readonly src: string; readonly alt?: string};
+ }
+diff --git a/ui/src/frontend/index.ts b/ui/src/frontend/index.ts
+index e6fb11051d..2ce43620a3 100644
+--- a/ui/src/frontend/index.ts
++++ b/ui/src/frontend/index.ts
+@@ -361,7 +361,11 @@ function onCssLoaded(app: AppImpl) {
+   document.body.innerHTML = '';
+ 
+   const pages = app.pages;
+-  pages.registerPage({route: '/', render: () => m(HomePage)});
++  const homePage = app.embedder.homePage;
++  pages.registerPage({
++    route: '/',
++    render: () => (homePage ? m(homePage, {app}) : m(HomePage)),
++  });
+   const router = new Router();
+   router.onRouteChanged = routeChange;
+ 
+diff --git a/ui/src/frontend/views/sidebar.ts b/ui/src/frontend/views/sidebar.ts
+index e6a7ba5fcd..52df861b34 100644
+--- a/ui/src/frontend/views/sidebar.ts
++++ b/ui/src/frontend/views/sidebar.ts
+@@ -82,7 +82,7 @@ export class Sidebar implements m.ClassComponent<SidebarAttrs> {
+       {
+         className: `pf-sidebar__header--${getCurrentChannel()}`,
+       },
+-      m(`img[src=${assetSrc('assets/brand.png')}].pf-sidebar__brand`),
++      this.renderBrandLogo(app),
+       app.embedder.brandingBadge &&
+         m(
+           'span.pf-sidebar__branding-badge',
+@@ -109,6 +109,14 @@ export class Sidebar implements m.ClassComponent<SidebarAttrs> {
+     );
+   }
+ 
++  private renderBrandLogo(app: AppImpl): m.Children {
++    const logo = app.embedder.brandLogo;
++    if (logo === undefined) {
++      return m(`img[src=${assetSrc('assets/brand.png')}].pf-sidebar__brand`);
++    }
++    return m('img.pf-sidebar__brand', {src: logo.src, alt: logo.alt});
++  }
++
+   private renderSidebarContent(app: AppImpl) {
+     return m(
+       '.pf-sidebar__content',
