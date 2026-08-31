@@ -1,0 +1,52 @@
+name: Deploy Buildprof UI
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+
+concurrency:
+  group: buildprof-ui-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+      url: https://buildprof.lalitm.com
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Build the patched Perfetto UI
+        run: uv run tools/perfetto build-ui
+
+      - name: Add Cloudflare Pages configuration
+        run: cp infra/buildprof.lalitm.com/_headers third_party/src/perfetto/out/buildprof-ui/ui/dist/_headers
+
+      - name: Validate deployment assets
+        run: infra/buildprof.lalitm.com/validate-assets
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy third_party/src/perfetto/out/buildprof-ui/ui/dist --project-name=buildprof --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}

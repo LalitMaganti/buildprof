@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+assets=third_party/src/perfetto/out/buildprof-ui/ui/dist
+maximum_bytes=$((25 * 1024 * 1024))
+
+for required in index.html service_worker.js _headers; do
+  if [[ ! -f "$assets/$required" ]]; then
+    echo "Missing required deployment asset: $assets/$required" >&2
+    exit 1
+  fi
+done
+
+oversized=0
+while IFS= read -r -d '' asset; do
+  size=$(stat --format=%s "$asset")
+  if (( size > maximum_bytes )); then
+    echo "Asset exceeds Cloudflare Pages' 25 MiB limit: $asset ($size bytes)" >&2
+    oversized=1
+  fi
+done < <(find "$assets" -type f -print0)
+
+if (( oversized )); then
+  exit 1
+fi
+
+echo "Validated $(find "$assets" -type f | wc -l) Cloudflare Pages assets."

@@ -1,0 +1,8 @@
+/index.html
+  Cache-Control: no-cache, no-transform
+
+/service_worker.js
+  Cache-Control: no-cache, no-transform
+
+/service_worker.js.map
+  Cache-Control: no-cache, no-transform
