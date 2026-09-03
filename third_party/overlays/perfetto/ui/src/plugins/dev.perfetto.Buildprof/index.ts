@@ -1511,7 +1511,6 @@ class CompilerTracks {
     this.registerSummaryTrack(invocation);
     for (const track of invocation.tracks) {
       this.registerTrack(
-        invocation,
         compilerThreadUri(invocation, track.threadId),
         compilerThreadEventsSql(invocation, track.id),
       );
@@ -1545,11 +1544,7 @@ class CompilerTracks {
     });
   }
 
-  private registerTrack(
-    invocation: CompilerInvocation,
-    uri: string,
-    src: string,
-  ): void {
+  private registerTrack(uri: string, src: string): void {
     if (this.registered.has(uri)) return;
     this.registered.add(uri);
     const dataset = new SourceDataset({
