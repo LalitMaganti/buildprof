@@ -18,6 +18,7 @@ import { TrackNode } from "../../public/workspace";
 import { SourceDataset } from "../../trace_processor/dataset";
 import { createPerfettoTable } from "../../trace_processor/sql_utils";
 import { SliceTrack } from "../../components/tracks/slice_track";
+import { checkerboard } from "../../components/checkerboard";
 import { DurationWidget } from "../../components/widgets/duration";
 import { Timestamp } from "../../components/widgets/timestamp";
 import { renderArguments } from "../../components/details/args";
@@ -30,6 +31,11 @@ import { makeColorScheme } from "../../components/colorizer";
 import { HSLColor } from "../../base/color";
 import type { ColorScheme } from "../../base/color_scheme";
 import type { TrackEventDetailsPanel } from "../../public/details_panel";
+import type {
+  TrackMouseEvent,
+  TrackRenderContext,
+  TrackRenderer,
+} from "../../public/track";
 import type { AreaSelection } from "../../public/selection";
 import { DetailsShell } from "../../widgets/details_shell";
 import { GridLayout, GridLayoutColumn } from "../../widgets/grid_layout";
@@ -1222,7 +1228,7 @@ interface CompilerInvocation {
   readonly pid: number;
   readonly backend: string;
   readonly name: string;
-  readonly eventCount: number;
+  readonly tracks: ReadonlyArray<{ id: number; threadId: number }>;
   readonly uri: string;
 }
 
@@ -1298,6 +1304,97 @@ class CompilerEventDetailsPanel implements TrackEventDetailsPanel {
   }
 }
 
+/** Materialise a compiler invocation only when its track becomes visible. */
+class LazyCompilerTrack implements TrackRenderer {
+  private delegate?: TrackRenderer;
+  private loading?: Promise<TrackRenderer>;
+  private error?: string;
+
+  constructor(
+    private readonly trace: Trace,
+    private readonly create: () => Promise<TrackRenderer>,
+  ) {}
+
+  private ensureLoaded(): Promise<TrackRenderer> {
+    if (this.delegate !== undefined) return Promise.resolve(this.delegate);
+    if (this.loading !== undefined) return this.loading;
+    this.loading = this.create().then(
+      (delegate) => {
+        this.delegate = delegate;
+        this.trace.raf.scheduleFullRedraw();
+        return delegate;
+      },
+      (error: unknown) => {
+        this.error = error instanceof Error ? error.message : String(error);
+        this.trace.raf.scheduleFullRedraw();
+        throw error;
+      },
+    );
+    return this.loading;
+  }
+
+  render(ctx: TrackRenderContext): void {
+    if (this.delegate !== undefined) {
+      this.delegate.render(ctx);
+      return;
+    }
+    if (this.loading === undefined) void this.ensureLoaded();
+    if (this.error === undefined) {
+      checkerboard(ctx.ctx, this.getHeight(), 0, ctx.size.width);
+    } else {
+      ctx.ctx.fillStyle = ctx.colors.COLOR_TEXT_MUTED;
+      ctx.ctx.fillText(`Could not load compiler events: ${this.error}`, 8, 24);
+    }
+  }
+
+  getHeight(): number {
+    return this.delegate?.getHeight?.() ?? 40;
+  }
+
+  getSliceVerticalBounds(depth: number) {
+    return this.delegate?.getSliceVerticalBounds?.(depth);
+  }
+
+  getDataset() {
+    return this.delegate?.getDataset?.();
+  }
+
+  async getSelectionDetails(eventId: number) {
+    const delegate = await this.ensureLoaded();
+    return delegate.getSelectionDetails?.(eventId);
+  }
+
+  detailsPanel(
+    selection: Parameters<NonNullable<TrackRenderer["detailsPanel"]>>[0],
+  ) {
+    return this.delegate?.detailsPanel?.(selection);
+  }
+
+  renderTooltip() {
+    return this.delegate?.renderTooltip?.();
+  }
+
+  getTrackShellButtons() {
+    return this.delegate?.getTrackShellButtons?.();
+  }
+
+  onMouseMove(event: TrackMouseEvent): void {
+    this.delegate?.onMouseMove?.(event);
+  }
+
+  onMouseClick(event: TrackMouseEvent): boolean {
+    return this.delegate?.onMouseClick?.(event) ?? false;
+  }
+
+  onMouseDoubleClick(event: TrackMouseEvent): boolean {
+    return this.delegate?.onMouseDoubleClick?.(event) ?? false;
+  }
+
+  onMouseOut(): void {
+    this.delegate?.onMouseOut?.();
+  }
+}
+
 /** Compiler tracks stay out of the overview until requested or pinned. */
 class CompilerTracks {
   private readonly invocations = new Map<number, CompilerInvocation[]>();
@@ -1306,53 +1403,57 @@ class CompilerTracks {
   constructor(private readonly trace: Trace) {}
 
   async register(): Promise<void> {
-    const result = await this.trace.engine.query(`
-      with grouped as (
-        select extract_arg(s.arg_set_id, 'debug.owner_pid') as source_pid,
-               extract_arg(s.arg_set_id, 'debug.backend') as backend,
-               min(s.ts) as first_ts,
-               max(s.ts + s.dur) as last_ts,
-               count(*) as event_count
-        from slice s
-        where s.category = 'buildprof.compiler'
-        group by source_pid, backend
-      ), resolved as (
-        select g.*,
-               coalesce((
-                 select l.pid
-                 from ${T.life} l
-                 where l.ts <= g.first_ts
-                   and l.ts + l.dur >= g.last_ts
-                   and case g.backend
-                     when 'Clang' then lower(l.tool) glob '*clang*'
-                     when 'LLD' then lower(l.tool) glob '*ld.lld*'
-                     else 1
-                   end
-                 order by l.dur, l.pid
-                 limit 1
-               ), g.source_pid) as pid
-        from grouped g
-      )
-      select r.source_pid, r.pid, r.backend, l.name, r.event_count
-      from resolved r
-      join ${T.life} l on l.pid = r.pid
-      order by r.first_ts, r.backend
-    `);
-    const rows = result.iter({
-      source_pid: NUM,
-      pid: NUM,
-      backend: STR,
-      name: STR,
-      event_count: NUM,
-    });
-    for (; rows.valid(); rows.next()) {
+    await this.trace.engine.query(
+      "include perfetto module intervals.overlap",
+    );
+    const [tracksResult, processesResult] = await Promise.all([
+      this.trace.engine.query(`
+        select id as track_id, name
+        from track
+        where name glob '* compiler [[]pid *] · thread *'
+      `),
+      this.trace.engine.query(`select pid, name from ${T.life}`),
+    ]);
+
+    const processNames = new Map<number, string>();
+    const processes = processesResult.iter({ pid: NUM, name: STR });
+    for (; processes.valid(); processes.next()) {
+      processNames.set(processes.pid, processes.name);
+    }
+
+    const grouped = new Map<
+      string,
+      {
+        pid: number;
+        backend: string;
+        tracks: Array<{ id: number; threadId: number }>;
+      }
+    >();
+    const tracks = tracksResult.iter({ track_id: NUM, name: STR });
+    for (; tracks.valid(); tracks.next()) {
+      const match = /^(.+) compiler \[pid (-?\d+)\] · thread (\d+)$/.exec(
+        tracks.name,
+      );
+      if (match === null) continue;
+      const backend = match[1];
+      const pid = Number(match[2]);
+      const threadId = Number(match[3]);
+      const key = `${pid}:${backend}`;
+      const invocation = grouped.get(key) ?? { pid, backend, tracks: [] };
+      invocation.tracks.push({ id: tracks.track_id, threadId });
+      grouped.set(key, invocation);
+    }
+
+    for (const groupedInvocation of grouped.values()) {
       const invocation: CompilerInvocation = {
-        sourcePid: rows.source_pid,
-        pid: rows.pid,
-        backend: rows.backend,
-        name: rows.name,
-        eventCount: rows.event_count,
-        uri: `buildprof.compiler.${rows.backend.toLowerCase()}.${rows.pid}.${rows.source_pid}`,
+        sourcePid: groupedInvocation.pid,
+        pid: groupedInvocation.pid,
+        backend: groupedInvocation.backend,
+        name:
+          processNames.get(groupedInvocation.pid) ??
+          `${groupedInvocation.backend} compiler`,
+        tracks: groupedInvocation.tracks,
+        uri: `buildprof.compiler.${groupedInvocation.backend.toLowerCase()}.${groupedInvocation.pid}.${groupedInvocation.pid}`,
       };
       const invocations = this.invocations.get(invocation.pid) ?? [];
       invocations.push(invocation);
@@ -1388,14 +1489,6 @@ class CompilerTracks {
     return (this.invocations.get(pid)?.length ?? 0) > 0;
   }
 
-  eventCount(pid: number): number | undefined {
-    const invocations = this.invocations.get(pid);
-    return invocations?.reduce(
-      (count, invocation) => count + invocation.eventCount,
-      0,
-    );
-  }
-
   show(pid: number): void {
     const invocations = this.invocations.get(pid);
     if (invocations === undefined) return;
@@ -1415,10 +1508,52 @@ class CompilerTracks {
   }
 
   private ensureTrack(invocation: CompilerInvocation): void {
+    this.registerSummaryTrack(invocation);
+    for (const track of invocation.tracks) {
+      this.registerTrack(
+        invocation,
+        compilerThreadUri(invocation, track.threadId),
+        compilerThreadEventsSql(invocation, track.id),
+      );
+    }
+  }
+
+  private registerSummaryTrack(invocation: CompilerInvocation): void {
     if (this.registered.has(invocation.uri)) return;
     this.registered.add(invocation.uri);
     const dataset = new SourceDataset({
-      src: compilerEventsSql(invocation),
+      src: compilerSummarySql(invocation),
+      schema: {
+        id: NUM,
+        ts: LONG,
+        dur: LONG,
+        name: STR,
+        depth: NUM,
+        value: NUM,
+      },
+    });
+    this.trace.tracks.registerTrack({
+      uri: invocation.uri,
+      renderer: new LazyCompilerTrack(this.trace, () =>
+        SliceTrack.createMaterialized({
+          trace: this.trace,
+          uri: invocation.uri,
+          dataset,
+          colorizer: (row) => concurrencyColor(row.value),
+        }),
+      ),
+    });
+  }
+
+  private registerTrack(
+    invocation: CompilerInvocation,
+    uri: string,
+    src: string,
+  ): void {
+    if (this.registered.has(uri)) return;
+    this.registered.add(uri);
+    const dataset = new SourceDataset({
+      src,
       schema: {
         id: NUM,
         ts: LONG,
@@ -1432,67 +1567,89 @@ class CompilerTracks {
       },
     });
     this.trace.tracks.registerTrack({
-      uri: invocation.uri,
-      renderer: SliceTrack.create({
-        trace: this.trace,
-        uri: invocation.uri,
-        dataset,
-        colorizer: (row) => buildprofSliceColor(row.name),
-        detailsPanel: (row) =>
-          new CompilerEventDetailsPanel(this.trace, row),
-      }),
+      uri,
+      renderer: new LazyCompilerTrack(this.trace, () =>
+        SliceTrack.createMaterialized({
+          trace: this.trace,
+          uri,
+          dataset,
+          colorizer: (row) => buildprofSliceColor(row.name),
+          detailsPanel: (row) =>
+            new CompilerEventDetailsPanel(this.trace, row),
+        }),
+      ),
     });
   }
 
   private node(invocation: CompilerInvocation): TrackNode {
-    return new TrackNode({
+    const group = new TrackNode({
       uri: invocation.uri,
-      name: `${invocation.name} · ${invocation.eventCount} compiler events`,
-      subtitle: `${invocation.backend} · pid ${invocation.pid}`,
+      name: `${invocation.name} · ${invocation.backend} · pid ${invocation.pid}`,
+      isSummary: true,
+      collapsed: true,
       removable: true,
     });
+    for (const track of invocation.tracks) {
+      group.addChildLast(
+        new TrackNode({
+          uri: compilerThreadUri(invocation, track.threadId),
+          name: `Thread ${track.threadId}`,
+          subtitle: `${invocation.backend} · pid ${invocation.pid}`,
+        }),
+      );
+    }
+    return group;
   }
 }
 
-/** Lay the source compiler threads into non-overlapping lanes on demand. */
-function compilerEventsSql(invocation: CompilerInvocation): string {
+function compilerThreadUri(
+  invocation: CompilerInvocation,
+  threadId: number,
+): string {
+  return `${invocation.uri}.thread.${threadId}`;
+}
+
+/** Show how many compiler threads are doing work at each point in time. */
+function compilerSummarySql(invocation: CompilerInvocation): string {
+  const trackIds = invocation.tracks.map((track) => track.id).join(",");
+  return `
+    with counts as (
+      select ts,
+             value,
+             lead(ts) over (order by ts) as next_ts
+      from intervals_overlap_count!((
+        select ts, max(dur, 1) as dur
+        from slice
+        where track_id in (${trackIds}) and depth = 0
+      ), ts, dur)
+    )
+    select row_number() over (order by ts) as id,
+           ts, next_ts - ts as dur,
+           case value
+             when 1 then '1 active compiler thread'
+             else value || ' active compiler threads'
+           end as name,
+           0 as depth,
+           value
+    from counts
+    where value > 0 and next_ts > ts
+  `;
+}
+
+/** Preserve the compiler's native nesting within one source thread. */
+function compilerThreadEventsSql(
+  invocation: CompilerInvocation,
+  trackId: number,
+): string {
   const backend = invocation.backend.replaceAll("'", "''");
   return `
-    with
-      raw as (
-        select
-          s.id as id,
-          s.ts as ts,
-          max(s.dur, 1) as dur,
-          s.name as name,
-          s.arg_set_id as arg_set_id,
-          s.track_id as track_id,
-          s.depth as source_depth,
-          extract_arg(s.arg_set_id, 'debug.owner_pid') as pid,
-          extract_arg(s.arg_set_id, 'debug.backend') as backend,
-          extract_arg(s.arg_set_id, 'debug.compiler_category') as category
-        from slice s
-        where s.category = 'buildprof.compiler'
-          and extract_arg(s.arg_set_id, 'debug.owner_pid') = ${invocation.sourcePid}
-          and extract_arg(s.arg_set_id, 'debug.backend') = '${backend}'
-      ),
-      lanes as (
-        select track_id, max(source_depth) + 1 as height
-        from raw group by track_id
-      ),
-      positioned as (
-        select
-          track_id,
-          ifnull(sum(height) over (
-            order by track_id
-            rows between unbounded preceding and 1 preceding
-          ), 0) as base_depth
-        from lanes
-      )
-    select raw.id, raw.ts, raw.dur, raw.name, raw.arg_set_id,
-           ${invocation.pid} as pid, raw.backend, raw.category,
-           raw.source_depth + positioned.base_depth as depth
-    from raw join positioned using (track_id)
+    select s.id, s.ts, max(s.dur, 1) as dur, s.name, s.arg_set_id,
+           ${invocation.pid} as pid, '${backend}' as backend,
+           extract_arg(s.arg_set_id, 'debug.compiler_category') as category,
+           s.depth as depth
+    from slice s
+    where s.track_id = ${trackId}
+      and s.category = 'buildprof.compiler'
   `;
 }
 
@@ -2346,7 +2503,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
         buttons: this.compilerTracks.has(this.pid)
           ? m(Button, {
               icon: "vertical_align_top",
-              label: `Show compiler track (${this.compilerTracks.eventCount(this.pid) ?? 0} events)`,
+              label: "Show compiler track",
               tooltip: "Add and view the detailed compiler track",
               onclick: () => this.compilerTracks.show(this.pid),
             })
