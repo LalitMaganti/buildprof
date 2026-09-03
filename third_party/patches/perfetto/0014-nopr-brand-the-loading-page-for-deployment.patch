@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: buildprof-perfetto <buildprof-perfetto@localhost>
+Date: Fri, 4 Sep 2026 00:26:52 +0100
+Subject: nopr: brand the loading page for deployment
+
+---
+ ui/src/assets/index.html | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ui/src/assets/index.html b/ui/src/assets/index.html
+index 0392e49475..23f5aadd49 100644
+--- a/ui/src/assets/index.html
++++ b/ui/src/assets/index.html
+@@ -2,7 +2,7 @@
+ <html lang="en-us">
+ <head>
+   <meta charset="utf-8">
+-  <title>Perfetto UI</title>
++  <title>Buildprof</title>
+   <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" name="viewport" />
+   <link rel="shortcut icon" id="favicon" type="image/png" href="data:image/png;base64,iVBORw0KGgo=">
+ </head>
+@@ -25,7 +25,7 @@
+   <div id="app_load"><div id="app_load_spinner"></div></div>
+   <div id="app_load_failure">
+ <pre>
+-<span>Perfetto UI - An unrecoverable problem occurred</span>
++<span>Buildprof - An unrecoverable problem occurred</span>
+ 
+ If you are seeing this message, something went wrong while loading the UI.
+ In most cases this is due to very slow or flaky network and it goes away by

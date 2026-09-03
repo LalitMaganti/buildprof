@@ -8,7 +8,7 @@ It works below any individual build system, so the same view can include Cargo
 crates, Ninja jobs, compiler and linker invocations, shell scripts, code
 generators, file access, and arbitrary tools launched along the way.
 
-![A Bun build opened in Buildprof](docs/assets/bun-zig-ci-overview.png)
+![A clean ripgrep release build opened in Buildprof](docs/assets/ripgrep-release-clean.png)
 
 ## Why use Buildprof?
 

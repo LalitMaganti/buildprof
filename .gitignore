@@ -16,7 +16,7 @@ third_party/src/
 /docs/*
 !/docs/assets/
 /docs/assets/*
-!/docs/assets/bun-zig-ci-overview.png
+!/docs/assets/ripgrep-release-clean.png
 
 # Local article capture tooling and intermediate outputs.
 /tools/capture_blog_*.mjs
