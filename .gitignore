@@ -12,6 +12,11 @@ third_party/src/
 /.synth/
 /.pnpm-store/
 /docs/
+!/docs/
+/docs/*
+!/docs/assets/
+/docs/assets/*
+!/docs/assets/bun-zig-ci-overview.png
 
 # Local article capture tooling and intermediate outputs.
 /tools/capture_blog_*.mjs

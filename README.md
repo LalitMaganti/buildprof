@@ -35,13 +35,13 @@ your browser and recordings can also be queried with Perfetto Trace Processor.
 
 Buildprof currently requires Linux. Install it from crates.io:
 
-```console
+```bash
 cargo install buildprof --locked
 ```
 
 Put the build command after `--`:
 
-```console
+```bash
 buildprof -- cargo build --release
 ```
 
@@ -52,13 +52,13 @@ fetched directly by your browser and is not uploaded.
 
 Choose another output path or disable automatic opening when needed:
 
-```console
+```bash
 buildprof -o clean-build.buildprof --no-open -- make -j8
 ```
 
 Open an existing recording later with:
 
-```console
+```bash
 buildprof open clean-build.buildprof
 ```
 
@@ -71,7 +71,7 @@ Process timing is usually the right level for understanding a build. When a
 particular compiler or linker invocation needs a closer look, enable compiler
 tracing:
 
-```console
+```bash
 buildprof --compiler-traces -- cargo build
 ```
 
@@ -113,7 +113,7 @@ no-daemon execution modes when a build system provides them.
 
 Run the complete conformance suite in the Linux development container:
 
-```console
+```bash
 just bootstrap
 just test
 ```
@@ -121,7 +121,7 @@ just test
 For a quick host-side check of formatting, lints, unit tests, and package
 contents:
 
-```console
+```bash
 just release-check
 ```
 
