@@ -82,6 +82,13 @@ def test_command_exit_status_is_returned_and_trace_is_written(
     assert processes[next(iter(processes))].segments[-1].exit_code == 17
 
 
+def test_missing_command_is_reported_with_exit_127(run_trace):
+    result, trace = run_trace("buildprof-no-such-command")
+    assert result.returncode == 127
+    assert "could not execute the command (errno 2: no such file or directory)" in result.stderr
+    assert trace.exists()
+
+
 def test_stdout_and_stderr_pass_through(run_trace, process_fixture: Path):
     result, trace = run_trace(process_fixture, "output")
     assert result.returncode == 0

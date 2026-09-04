@@ -16,6 +16,10 @@ mod tracee;
 
 const MINIMUM_SEGMENT_DURATION_NS: u64 = 1;
 const SIGNAL_EXIT_STATUS_OFFSET: i32 = 128;
+/// Exit status of the forked child when it cannot make itself traceable.
+const TRACE_SETUP_FAILURE_STATUS: i32 = 126;
+/// Exit status of the forked child when the command itself cannot start.
+const EXEC_FAILURE_STATUS: i32 = 127;
 
 pub fn record(
     command: &[OsString],
@@ -43,6 +47,13 @@ pub fn record(
         return Err(io::Error::last_os_error());
     }
     if !wifstopped(status) {
+        if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == TRACE_SETUP_FAILURE_STATUS {
+            return Err(io::Error::other(
+                "tracing could not start here (see above); in Docker add --cap-add SYS_PTRACE, \
+                 keep kernel.yama.ptrace_scope below 3, and note that gVisor-style sandboxes \
+                 cannot trace at all",
+            ));
+        }
         return Err(io::Error::other("traced child did not stop before exec"));
     }
 
@@ -539,18 +550,67 @@ fn child_exec(argv: &[CString], compilers: &Capture) -> ! {
             ptr::null_mut::<c_void>(),
         ) == -1
         {
-            libc::_exit(126);
+            child_fail(
+                b"ptrace is not permitted in this environment",
+                TRACE_SETUP_FAILURE_STATUS,
+            );
         }
         libc::raise(libc::SIGSTOP);
         if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1 {
-            libc::_exit(126);
+            child_fail(
+                b"could not set no_new_privs for the seccomp filter",
+                TRACE_SETUP_FAILURE_STATUS,
+            );
         }
         if install_filter().is_err() {
-            libc::_exit(126);
+            child_fail(
+                b"could not install the seccomp filter; the kernel or sandbox lacks seccomp-bpf",
+                TRACE_SETUP_FAILURE_STATUS,
+            );
         }
         let mut pointers: Vec<*const libc::c_char> = argv.iter().map(|arg| arg.as_ptr()).collect();
         pointers.push(ptr::null());
         libc::execvp(argv[0].as_ptr(), pointers.as_ptr());
-        libc::_exit(127);
+        child_fail(b"could not execute the command", EXEC_FAILURE_STATUS);
     }
+}
+
+/// Reports why the forked child is giving up, then exits with `status`.
+///
+/// Runs between `fork` and `exec`, so it uses only async-signal-safe calls:
+/// fixed byte strings, a hand-formatted errno, and `write` to stderr.
+unsafe fn child_fail(message: &[u8], status: i32) -> ! {
+    let errno = unsafe { *libc::__errno_location() };
+    let reason: &[u8] = match errno {
+        libc::EPERM => b"operation not permitted",
+        libc::EACCES => b"permission denied",
+        libc::ENOENT => b"no such file or directory",
+        libc::ENOEXEC => b"not an executable",
+        libc::ENOSYS => b"not supported by this kernel",
+        libc::EINVAL => b"invalid argument",
+        _ => b"",
+    };
+    let mut digits = [0_u8; 11];
+    let mut index = digits.len();
+    let mut remaining = errno.unsigned_abs();
+    loop {
+        index -= 1;
+        digits[index] = b'0' + (remaining % 10) as u8;
+        remaining /= 10;
+        if remaining == 0 {
+            break;
+        }
+    }
+    for part in [
+        b"buildprof: ".as_slice(),
+        message,
+        b" (errno ",
+        &digits[index..],
+        if reason.is_empty() { b"" } else { b": " },
+        reason,
+        b")\n",
+    ] {
+        unsafe { libc::write(libc::STDERR_FILENO, part.as_ptr().cast(), part.len()) };
+    }
+    unsafe { libc::_exit(status) }
 }
