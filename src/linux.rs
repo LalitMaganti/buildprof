@@ -469,15 +469,15 @@ impl Tracer<'_> {
             return Ok(());
         }
         let timestamp_ns = self.now_ns();
-        if let Some(mut state) = self.processes.remove(&tgid) {
-            if let Some(mut segment) = state.segment.take() {
-                segment.end_ns =
-                    timestamp_ns.max(segment.start_ns.saturating_add(MINIMUM_SEGMENT_DURATION_NS));
-                segment.exit_code = self.exit_codes.remove(&tgid);
-                self.writer.segment(state.process, &segment)?;
-                self.compilers
-                    .process_exited(tgid, segment.start_ns, self.writer);
-            }
+        if let Some(mut state) = self.processes.remove(&tgid)
+            && let Some(mut segment) = state.segment.take()
+        {
+            segment.end_ns =
+                timestamp_ns.max(segment.start_ns.saturating_add(MINIMUM_SEGMENT_DURATION_NS));
+            segment.exit_code = self.exit_codes.remove(&tgid);
+            self.writer.segment(state.process, &segment)?;
+            self.compilers
+                .process_exited(tgid, segment.start_ns, self.writer);
         }
         Ok(())
     }

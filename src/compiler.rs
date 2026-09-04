@@ -61,10 +61,8 @@ impl Capture {
             origin: UNIX_EPOCH,
             declared_tracks: HashSet::new(),
         };
-        if enabled {
-            if let Err(error) = capture.prepare() {
-                eprintln!("buildprof: compiler tracing unavailable: {error}");
-            }
+        if enabled && let Err(error) = capture.prepare() {
+            eprintln!("buildprof: compiler tracing unavailable: {error}");
         }
         capture
     }
