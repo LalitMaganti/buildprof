@@ -147,7 +147,10 @@ def _summarise(trace: Path) -> str:
 def test_build_system(case, buildprof: Path, tmp_path: Path, request):
     for tool in REQUIRED_TOOLS[case]:
         if shutil.which(tool) is None:
-            pytest.skip(f"{tool} is not installed in this environment")
+            message = f"{tool} is not installed in this environment"
+            if os.environ.get("BUILDPROF_REQUIRE_TOOLS"):
+                pytest.fail(message)
+            pytest.skip(message)
 
     build, _ = CASES[case]
     project = tmp_path / case

@@ -123,9 +123,12 @@ def test_main() -> int:
 
 
 def in_container_test_main() -> int:
-    os.chdir("/work")
+    # Runs inside the development container, where ROOT is the /work bind
+    # mount, and directly on Linux CI runners, where ROOT is the checkout.
+    os.chdir(ROOT)
     environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = "/work/target/linux"
+    target_dir = Path(environment.get("CARGO_TARGET_DIR", ROOT / "target/linux"))
+    environment["CARGO_TARGET_DIR"] = str(target_dir)
     formatting = subprocess.run(
         ["cargo", "fmt", "--all", "--", "--check"], env=environment
     )
@@ -143,5 +146,5 @@ def in_container_test_main() -> int:
     unit_tests = subprocess.run(["cargo", "test", "--locked"], env=environment)
     if unit_tests.returncode != 0:
         return unit_tests.returncode
-    environment["BUILDPROF_BIN"] = "/work/target/linux/debug/buildprof"
+    environment["BUILDPROF_BIN"] = str(target_dir / "debug/buildprof")
     os.execvpe("pytest", ["pytest", "-q", *sys.argv[1:]], environment)

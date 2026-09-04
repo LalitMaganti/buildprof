@@ -1,0 +1,45 @@
+name: Build the patched Perfetto UI
+description: >-
+  Checks out the pinned Perfetto revision, applies the Buildprof patches and
+  overlays, and builds the self-hostable UI. The wasm build is the expensive
+  part (roughly 27 minutes cold), so compiles go through ccache and the
+  Perfetto toolchain downloads are cached between runs. Perfetto's ui/build
+  enables cc_wrapper="ccache" on its own whenever ccache is on PATH.
+
+runs:
+  using: composite
+  steps:
+    - name: Install Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+
+    # Perfetto's install-build-deps verifies each archive against a pinned
+    # SHA and skips ones that are already present, so a restored cache keyed on
+    # the Perfetto pin is used as-is and a stale one is refreshed in place.
+    - name: Cache Perfetto toolchains
+      uses: actions/cache@v4
+      with:
+        path: third_party/src/perfetto/buildtools
+        key: perfetto-buildtools-${{ runner.os }}-${{ hashFiles('third_party/perfetto.toml') }}
+        restore-keys: |
+          perfetto-buildtools-${{ runner.os }}-
+
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: perfetto-ui-${{ runner.os }}-${{ hashFiles('third_party/perfetto.toml') }}
+        max-size: 2G
+
+    - name: Build the patched Perfetto UI
+      shell: bash
+      run: uv run tools/perfetto build-ui
+
+    - name: Report ccache statistics
+      shell: bash
+      run: ccache --show-stats
