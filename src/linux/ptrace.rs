@@ -5,13 +5,20 @@ use std::io;
 use std::mem::{self, size_of};
 use std::ptr;
 
-pub(super) const TRACEME: libc::c_uint = 0;
-pub(super) const PEEKDATA: libc::c_uint = 2;
-pub(super) const CONT: libc::c_uint = 7;
-pub(super) const SYSCALL: libc::c_uint = 24;
-pub(super) const SETOPTIONS: libc::c_uint = 0x4200;
-const GETEVENTMSG: libc::c_uint = 0x4201;
-const GET_SYSCALL_INFO: libc::c_uint = 0x420e;
+/// The type libc gives `ptrace`'s request argument: glibc models it as a C
+/// enum (`c_uint`), musl as a plain `c_int`. The values are the same.
+#[cfg(target_env = "musl")]
+pub(super) type Request = libc::c_int;
+#[cfg(not(target_env = "musl"))]
+pub(super) type Request = libc::c_uint;
+
+pub(super) const TRACEME: Request = 0;
+pub(super) const PEEKDATA: Request = 2;
+pub(super) const CONT: Request = 7;
+pub(super) const SYSCALL: Request = 24;
+pub(super) const SETOPTIONS: Request = 0x4200;
+const GETEVENTMSG: Request = 0x4201;
+const GET_SYSCALL_INFO: Request = 0x420e;
 
 pub(super) const O_TRACESYSGOOD: usize = 0x1;
 pub(super) const O_TRACEFORK: usize = 0x2;
@@ -51,7 +58,7 @@ pub(super) fn ignore_dead(result: io::Result<libc::c_long>) -> io::Result<()> {
 }
 
 pub(super) fn call(
-    request: libc::c_uint,
+    request: Request,
     pid: i32,
     address: usize,
     data: usize,
