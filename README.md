@@ -49,9 +49,6 @@ Buildprof follows the complete process tree instead. It lets you:
   scripts; and
 - optionally add compiler-internal phases from Clang, LLD, and nightly Rust.
 
-The recording is a Perfetto protobuf trace. The UI processes it locally in
-your browser and recordings can also be queried with Perfetto Trace Processor.
-
 ## Install
 
 Use whichever of these you already have (see the
