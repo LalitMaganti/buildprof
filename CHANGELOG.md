@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-04
+
 ### Added
 
 - `buildprof.version` and `buildprof.trace_format` trace attributes, visible
@@ -21,6 +23,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - Clear messages when ptrace or seccomp is unavailable (Docker without
   `SYS_PTRACE`, Yama `ptrace_scope` 3, gVisor), when the command cannot be
   executed, and when port 9001 is already taken.
+- Prebuilt binaries on GitHub Releases for x86_64 and aarch64 Linux (glibc
+  2.28 or newer, plus static musl builds) and for macOS, with a shell
+  installer, a Homebrew tap, `.deb` and `.rpm` packages, and mise support.
+- Every released UI is deployed permanently under
+  `https://buildprof.lalitm.com/v<version>/`; the CLI opens the UI matching
+  its own version and the UI links to the matching version when a trace was
+  recorded by a different release.
 
 ### Changed
 

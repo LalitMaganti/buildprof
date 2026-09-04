@@ -160,7 +160,10 @@ pub enum Args {
     Examples,
 }
 
-pub const DEFAULT_UI_URL: &str = "https://buildprof.lalitm.com";
+/// Every release of the UI stays deployed under its own version directory, so
+/// a CLI always opens the UI it was released with.
+pub const DEFAULT_UI_URL: &str =
+    concat!("https://buildprof.lalitm.com/v", env!("CARGO_PKG_VERSION"));
 pub const DEV_UI_URL: &str = "http://localhost:10000";
 pub const EXAMPLES_URL: &str = "https://buildprof.lalitm.com/examples";
 

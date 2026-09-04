@@ -33,11 +33,26 @@ your browser and recordings can also be queried with Perfetto Trace Processor.
 
 ## Quick start
 
-Buildprof currently requires Linux. Install it from crates.io:
+Recording requires Linux. Install a prebuilt binary:
 
 ```bash
-cargo install buildprof --locked
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/LalitMaganti/buildprof/releases/latest/download/buildprof-installer.sh | sh
 ```
+
+Other ways to install:
+
+| Method | Command |
+| --- | --- |
+| Homebrew (Linux and macOS) | `brew install lalitmaganti/tap/buildprof` |
+| mise | `mise use -g github:LalitMaganti/buildprof` |
+| crates.io | `cargo install buildprof --locked` |
+| Debian, Ubuntu | `.deb` on the [release page](https://github.com/LalitMaganti/buildprof/releases/latest) |
+| Fedora, RHEL | `.rpm` on the release page |
+| Arch Linux | `buildprof-bin` from the AUR |
+
+The glibc builds run on glibc 2.28 or newer, which covers RHEL 8, Debian 10,
+and Ubuntu 18.04 onward; static musl builds are on the release page for
+everything else. The macOS build only opens traces.
 
 Put the build command after `--`:
 
@@ -48,7 +63,9 @@ buildprof -- cargo build --release
 The recording is written to `output.buildprof`. In an interactive graphical
 session, Buildprof also serves it from localhost and opens
 [buildprof.lalitm.com](https://buildprof.lalitm.com) automatically. The trace is
-fetched directly by your browser and is not uploaded.
+fetched directly by your browser and is not uploaded. Each release of the UI
+stays available under its own version, and the CLI opens the one it was
+released with.
 
 Choose another output path or disable automatic opening when needed:
 
@@ -128,14 +145,25 @@ Because recording follows descendants, work delegated to an existing daemon,
 a remote executor, or another machine is outside the trace. Use local or
 no-daemon execution modes when a build system provides them.
 
+## Self-hosting the UI
+
+Each release attaches `buildprof-ui-v<version>.tar.zst`, the complete UI as
+static files. Serve its contents from any web server and point the CLI at it:
+
+```bash
+buildprof open --url https://ui.example.internal/v0.2.0 clean-build.buildprof
+```
+
 ## Requirements
 
 - Linux with a kernel or container configuration that permits tracing child
-  processes
+  processes: Docker needs `--cap-add SYS_PTRACE`, `kernel.yama.ptrace_scope`
+  must be below 3, and gVisor-style sandboxes cannot trace at all
 - Rust 1.91 or newer when installing from source
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the layout and the UI workflow.
 Run the complete conformance suite in the Linux development container:
 
 ```bash
