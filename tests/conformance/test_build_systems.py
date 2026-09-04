@@ -87,6 +87,22 @@ def _cargo_project(root: Path) -> list[str]:
 
 
 def _go_project(root: Path) -> list[str]:
+    # A cold build cache makes Go compile the standard library too, which adds
+    # assembler and header edges that depend on cache state rather than on the
+    # build. Warm the cache with a different program so only this module's
+    # own compile and link are recorded.
+    warmup = root.parent / f"{root.name}-warmup"
+    warmup.mkdir()
+    (warmup / "go.mod").write_text("module warmup\n\ngo 1.21\n")
+    (warmup / "main.go").write_text(
+        "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(4) }\n"
+    )
+    subprocess.run(
+        ["go", "build", "-o", str(warmup / "prog"), "."],
+        cwd=warmup,
+        check=True,
+        capture_output=True,
+    )
     (root / "go.mod").write_text("module bt\n\ngo 1.21\n")
     (root / "main.go").write_text(
         "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(3) }\n"
@@ -111,6 +127,16 @@ REQUIRED_TOOLS = {
 }
 
 
+# Which linker a toolchain drives is a property of the toolchain, not of the
+# build: Rust 1.90+ uses rust-lld on x86_64 Linux but ld elsewhere. Fold them
+# into one name so the summaries hold across hosts.
+LINKER_ALIASES = {"ld.lld": "ld", "rust-lld": "ld", "lld": "ld", "ld.gold": "ld", "ld.bfd": "ld"}
+
+
+def _tool_name(name: str) -> str:
+    return LINKER_ALIASES.get(name, name)
+
+
 def _summarise(trace: Path) -> str:
     """Describe stable tool and artifact-flow relationships in the trace."""
     everything = load_perfetto(trace)
@@ -120,14 +146,16 @@ def _summarise(trace: Path) -> str:
     processes = {
         pid: p for pid, p in everything.items() if any(s.execed for s in p.segments)
     }
-    tools = sorted({segment.name for p in processes.values() for segment in p.segments})
+    tools = sorted(
+        {_tool_name(segment.name) for p in processes.values() for segment in p.segments}
+    )
 
     def extension(path: str) -> str:
         base = path.rsplit("/", 1)[-1]
         return "." + base.rsplit(".", 1)[-1] if "." in base else "(none)"
 
     def tool_of(pid: int) -> str:
-        return processes[pid].segments[0].name
+        return _tool_name(processes[pid].segments[0].name)
 
     edges = sorted(
         {
