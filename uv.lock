@@ -17,7 +17,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "perfetto", specifier = ">=0.57,<0.58" },
+    { name = "perfetto", specifier = ">=0.58,<0.59" },
     { name = "pytest", specifier = ">=8,<9" },
 ]
 
@@ -50,14 +50,14 @@ wheels = [
 
 [[package]]
 name = "perfetto"
-version = "0.57.2"
+version = "0.58.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a8/27/aa614680b7355a6bc724e8f2b6085cb263c3dbb81f3dd7ed9d8e5c9cfcd0/perfetto-0.57.2.tar.gz", hash = "sha256:4029b3da0f3dbb687ba16f70b10761b097f3cd2bf256cd6f251b878464cc8e39", size = 323920, upload-time = "2026-07-07T16:27:34.538Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/42/faefb17f233dd2dfcc604c0ccec401fefa50513ac5ae97fd5e91f3d7335e/perfetto-0.58.2.tar.gz", hash = "sha256:54e0e8616dcd9fc1e087914d747370375aeb2f8dacf68ae7ead8c3c5e596a0c7", size = 326047, upload-time = "2026-08-24T22:25:54.288Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/59/7252b92e3e5738a6bf88e4579007b7df4c8995f0c95b75e3682473d2153b/perfetto-0.57.2-py3-none-any.whl", hash = "sha256:307896cee046778e632b4361a704417ad1ecd6f48b07da0a6178681f919311fa", size = 342189, upload-time = "2026-07-07T16:27:33.107Z" },
+    { url = "https://files.pythonhosted.org/packages/47/ec/0763833e57af5cb135e7485e2d4c0ab15df78e36f4b81eb31446ea053ec5/perfetto-0.58.2-py3-none-any.whl", hash = "sha256:024d37db3e1938a0247311337daf419c7204af757fb303cdc1dca46fa8d83cfe", size = 344338, upload-time = "2026-08-24T22:25:52.752Z" },
 ]
 
 [[package]]

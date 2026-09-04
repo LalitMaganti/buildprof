@@ -3,7 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from perfetto.trace_processor import TraceProcessor
+from perfetto.trace_processor import TraceProcessor, TraceProcessorConfig
+
+# Buildprof traces are whole-file zstd streams, which the prebuilt Trace
+# Processor bundled with the perfetto package cannot yet read. Fetch the latest
+# prebuilt instead; remove this override when a package release on PyPI
+# bundles a Trace Processor with the zstd importer.
+_CONFIG = TraceProcessorConfig(fetch_latest_trace_processor=True)
+
+
+def open_trace(path: Path) -> TraceProcessor:
+    return TraceProcessor(trace=str(path), config=_CONFIG)
 
 
 @dataclass(frozen=True)
@@ -56,7 +66,7 @@ class Process:
 
 
 def load_perfetto(path: Path) -> dict[int, Process]:
-    processor = TraceProcessor(trace=str(path))
+    processor = open_trace(path)
     try:
         importer_errors = list(
             processor.query(
@@ -113,8 +123,26 @@ def load_perfetto(path: Path) -> dict[int, Process]:
     return processes
 
 
+def load_trace_attributes(path: Path) -> dict[str, str | int]:
+    """Custom trace attributes, without Perfetto's `trace_attribute.` prefix."""
+    processor = open_trace(path)
+    try:
+        rows = processor.query(
+            "select name, str_value, int_value from metadata "
+            "where name like 'trace_attribute.%'"
+        )
+        return {
+            row.name.removeprefix("trace_attribute."): (
+                row.str_value if row.str_value is not None else row.int_value
+            )
+            for row in rows
+        }
+    finally:
+        processor.close()
+
+
 def load_file_opens(path: Path) -> list[FileOpen]:
-    processor = TraceProcessor(trace=str(path))
+    processor = open_trace(path)
     try:
         rows = list(
             processor.query(
@@ -147,7 +175,7 @@ def load_file_opens(path: Path) -> list[FileOpen]:
 
 
 def load_renames(path: Path) -> list[Rename]:
-    processor = TraceProcessor(trace=str(path))
+    processor = open_trace(path)
     try:
         rows = list(
             processor.query(

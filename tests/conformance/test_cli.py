@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 import subprocess
+import tomllib
 
-from .model import load_file_opens, load_perfetto
+from .model import load_file_opens, load_perfetto, load_trace_attributes
+
+ROOT = Path(__file__).resolve().parents[2]
+ZSTD_MAGIC = bytes.fromhex("28b52ffd")
 
 
 def test_no_command_prints_usage_and_exits_2(buildprof: Path, tmp_path: Path):
@@ -47,6 +51,19 @@ def test_default_output_is_a_parseable_perfetto_trace(
     )
     assert result.returncode == 0
     assert load_perfetto(tmp_path / "output.buildprof")
+
+
+def test_trace_is_zstd_compressed_and_records_its_provenance(
+    run_trace, process_fixture: Path
+):
+    result, trace = run_trace(process_fixture, "single")
+    assert result.returncode == 0
+    assert trace.read_bytes()[:4] == ZSTD_MAGIC
+
+    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text())
+    attributes = load_trace_attributes(trace)
+    assert attributes["buildprof.version"] == manifest["package"]["version"]
+    assert attributes["buildprof.trace_format"] == 1
 
 
 def test_requested_output_path_is_used(run_trace, process_fixture: Path):
