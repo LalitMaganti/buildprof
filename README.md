@@ -49,10 +49,9 @@ mise use -g github:LalitMaganti/buildprof
 
 The [release page](https://github.com/LalitMaganti/buildprof/releases/latest)
 also has `.deb` and `.rpm` packages, static musl builds for Alpine and
-similar, and macOS builds for opening traces. Arch users have `buildprof-bin`
-in the AUR, and `cargo install buildprof --locked` builds from source. The
-glibc builds run on glibc 2.28 or newer, which covers RHEL 8, Debian 10, and
-Ubuntu 18.04 onward.
+similar, and macOS builds for opening traces, and
+`cargo install buildprof --locked` builds from source. The glibc builds run on
+glibc 2.28 or newer, which covers RHEL 8, Debian 10, and Ubuntu 18.04 onward.
 
 Put the build command after `--`:
 

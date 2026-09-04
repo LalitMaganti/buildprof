@@ -73,7 +73,7 @@ export class BuildprofHomePage implements m.ClassComponent<HomePageAttrs> {
           m('h2', 'Install Buildprof'),
           m(
             'p',
-            'On your Linux build machine, with whichever of these you already use. Packages for Debian, Fedora, and Arch are on the ',
+            'On your Linux build machine, with whichever of these you already use. Packages for Debian and Fedora are on the ',
             m('a', {href: `${RELEASES_URL}/latest`, target: '_blank', rel: 'noopener'}, 'release page'),
             '.',
           ),

@@ -42,12 +42,12 @@ Then, in order:
 
 Manual follow-ups:
 
-- AUR: `packaging/aur/update <version>`, regenerate `.SRCINFO`, push to the
-  `buildprof-bin` package.
-- First release only: submit `packaging/aqua`, `packaging/mise`, and
-  `packaging/nix` to their registries (see `packaging/README.md`). Later
-  releases only need the nixpkgs version bump; aqua and mise track GitHub
-  releases automatically.
+- First release only: submit `packaging/aqua` and `packaging/mise` so
+  `mise use -g buildprof` resolves without the `github:` prefix. Both track
+  GitHub releases automatically afterwards.
+- Later, when there is demand: AUR (`packaging/aur/update <version>`, then
+  push to a `buildprof-bin` package) and nixpkgs (`packaging/nix`). Neither is
+  part of the initial release.
 
 ## Compatibility rules
 
