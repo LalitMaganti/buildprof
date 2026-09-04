@@ -160,10 +160,18 @@ Because recording follows descendants, work delegated to an existing daemon,
 a remote executor, or another machine is outside the trace. Use local or
 no-daemon execution modes when a build system provides them.
 
-## UI versions
+## Backwards compatibility
 
-Each release of the UI stays available under its own version, and the CLI
-opens the one it was released with, so old recordings keep working.
+Before 1.0, the CLI and the UI move in lockstep: a recording is meant to be
+viewed in the UI released with the same version. Every UI version stays
+deployed under its own path, the CLI opens the one matching its version, and
+the UI links to the matching version when it is handed a recording from a
+different release, so nothing stops working, but the trace format may change
+between releases.
+
+From 1.0 onward, the trace format is stable and compatibility is permanent:
+any recording opens in every later UI, and newer UIs simply add features on
+top of older recordings.
 
 ## Self-hosting the UI
 

@@ -51,8 +51,11 @@ Manual follow-ups:
 
 ## Compatibility rules
 
-- Every released UI stays deployed forever under `/v<version>/`. The root
-  serves the newest and shows a link to the matching version when a trace was
-  recorded by a different release.
-- `buildprof.trace_format` in the trace only changes when the UI needs to read
-  traces differently; a bump is a `Changed` entry in the changelog.
+- Before 1.0 the CLI and UI are in lockstep: the trace format may change
+  between releases, and every released UI stays deployed forever under
+  `/v<version>/` so any recording still has a UI that reads it. The root
+  serves the newest and links to the matching version for other recordings.
+- From 1.0 the trace format is stable. Every recording must open in every
+  later UI; a change that would break that needs a `buildprof.trace_format`
+  bump plus a reader for the old format in the UI, never a new UI for old
+  traces.
