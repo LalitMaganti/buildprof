@@ -14,8 +14,7 @@ import sys
 
 TAGLINE = (
     "Buildprof records every process a build starts and every file it opens, "
-    "and shows the whole build on an interactive timeline in your browser. "
-    "Nothing is ever uploaded.\n"
+    "and shows the whole build on an interactive timeline in your browser.\n"
 )
 
 INSTALL = """\
