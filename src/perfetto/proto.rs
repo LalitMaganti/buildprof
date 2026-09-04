@@ -32,7 +32,6 @@ mod packet {
     pub(super) const TRACK_DESCRIPTOR: u32 = 60;
     pub(super) const EXTENSION_DESCRIPTOR: u32 = 72;
     pub(super) const TRACE_ATTRIBUTES: u32 = 126;
-    pub(super) const ZSTD_COMPRESSED_PACKETS: u32 = 133;
 }
 
 mod trace_attributes {
@@ -186,13 +185,6 @@ impl Packet<'_, '_> {
             packet::SEQUENCE_FLAGS,
             u64::from(SEQUENCE_NEEDS_INCREMENTAL_STATE),
         )
-    }
-
-    /// A batch of complete packets compressed with zstd. Trace Processor
-    /// expands these while tokenizing, so the batch must not itself contain
-    /// compressed packets.
-    pub(super) fn zstd_compressed_packets(&mut self, packets: &[u8]) -> io::Result<()> {
-        self.encoder.bytes(packet::ZSTD_COMPRESSED_PACKETS, packets)
     }
 
     pub(super) fn trace_attributes(
