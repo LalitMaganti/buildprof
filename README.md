@@ -107,7 +107,7 @@ no-daemon execution modes when a build system provides them.
 
 - Linux with a kernel or container configuration that permits tracing child
   processes
-- Rust 1.85 or newer when installing from source
+- Rust 1.91 or newer when installing from source
 
 ## Development
 

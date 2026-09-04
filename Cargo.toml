@@ -10,7 +10,7 @@ repository = "https://github.com/lalitmaganti/buildprof"
 keywords = ["build", "profiling", "perfetto", "tracing"]
 categories = ["command-line-utilities", "development-tools::profiling"]
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.91"
 include = [
     "/src/**",
     "/AUTHORS",
