@@ -31,6 +31,8 @@ Then, in order:
 - `release.yml` (dist) builds glibc 2.28, musl, and macOS binaries, the shell
   installer, checksums, and the Homebrew formula, and publishes the GitHub
   release.
+- `https://buildprof.lalitm.com/install.sh` is a redirect to the latest
+  release's installer, written by `assemble-site`, so it needs no update.
 - `deploy-ui.yml` builds this release's UI, attaches
   `buildprof-ui-v<version>.tar.zst` to the release, assembles the site from
   every released UI and the examples, deploys it, and only then publishes the

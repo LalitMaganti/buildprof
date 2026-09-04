@@ -5,7 +5,7 @@ set -euo pipefail
 site=${1:?usage: validate-assets <site-dir>}
 maximum_bytes=$((25 * 1024 * 1024))
 
-for required in index.html service_worker.js _headers; do
+for required in index.html service_worker.js _headers _redirects; do
   if [[ ! -f "$site/$required" ]]; then
     echo "Missing required deployment asset: $site/$required" >&2
     exit 1

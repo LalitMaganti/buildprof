@@ -9,13 +9,11 @@ import type {App} from '../../public/app';
 import {VERSION} from '../../virtual/version';
 
 const RELEASES_URL = 'https://github.com/LalitMaganti/buildprof/releases';
-const INSTALL_COMMAND =
-  "curl --proto '=https' --tlsv1.2 -LsSf " +
-  `${RELEASES_URL}/latest/download/buildprof-installer.sh | sh`;
-const OTHER_INSTALLS = [
-  'brew install lalitmaganti/tap/buildprof',
-  'mise use -g buildprof',
-  'cargo install buildprof --locked',
+// Three equal ways in; the installer URL redirects to the latest release.
+const INSTALLS: ReadonlyArray<{label: string; command: string}> = [
+  {label: 'Shell', command: 'curl -fsSL https://buildprof.lalitm.com/install.sh | sh'},
+  {label: 'Homebrew', command: 'brew install lalitmaganti/tap/buildprof'},
+  {label: 'mise', command: 'mise use -g github:LalitMaganti/buildprof'},
 ];
 const RECORD_COMMAND = 'buildprof -- make -j8';
 
@@ -73,15 +71,21 @@ export class BuildprofHomePage implements m.ClassComponent<HomePageAttrs> {
           'article.bt-home__step',
           m('span.bt-home__number', '1'),
           m('h2', 'Install Buildprof'),
-          m('p', 'Install the recorder on your Linux build machine.'),
-          commandBlock(INSTALL_COMMAND),
           m(
-            'p.bt-home__alternatives',
-            'Or: ',
-            ...OTHER_INSTALLS.flatMap((command, index) => [
-              index > 0 ? ' · ' : '',
-              m('code', command),
-            ]),
+            'p',
+            'On your Linux build machine, with whichever of these you already use. Packages for Debian, Fedora, and Arch are on the ',
+            m('a', {href: `${RELEASES_URL}/latest`, target: '_blank', rel: 'noopener'}, 'release page'),
+            '.',
+          ),
+          m(
+            'div.bt-home__installs',
+            INSTALLS.map(({label, command}) =>
+              m(
+                'div.bt-home__install',
+                m('span.bt-home__install-label', label),
+                commandBlock(command),
+              ),
+            ),
           ),
         ),
         m(

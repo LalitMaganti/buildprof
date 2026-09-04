@@ -106,15 +106,28 @@
     }
   }
 
-  &__alternatives {
+  &__installs {
     grid-column: 2;
-    margin: 8px 0 0 !important;
-    font-size: 12px !important;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
 
-    code {
-      font-family: var(--pf-font-monospace);
-      color: var(--pf-color-text);
+  &__install {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 8px;
+
+    .bt-home__command {
+      grid-column: 2;
     }
+  }
+
+  &__install-label {
+    color: var(--pf-color-text-muted);
+    font-size: 12px;
+    font-weight: 600;
   }
 
   &__examples {

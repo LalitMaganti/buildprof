@@ -33,26 +33,26 @@ your browser and recordings can also be queried with Perfetto Trace Processor.
 
 ## Quick start
 
-Recording requires Linux. Install a prebuilt binary:
+Recording requires Linux. Install with whichever of these you already use:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/LalitMaganti/buildprof/releases/latest/download/buildprof-installer.sh | sh
+curl -fsSL https://buildprof.lalitm.com/install.sh | sh
 ```
 
-Other ways to install:
+```bash
+brew install lalitmaganti/tap/buildprof
+```
 
-| Method | Command |
-| --- | --- |
-| Homebrew (Linux and macOS) | `brew install lalitmaganti/tap/buildprof` |
-| mise | `mise use -g github:LalitMaganti/buildprof` |
-| crates.io | `cargo install buildprof --locked` |
-| Debian, Ubuntu | `.deb` on the [release page](https://github.com/LalitMaganti/buildprof/releases/latest) |
-| Fedora, RHEL | `.rpm` on the release page |
-| Arch Linux | `buildprof-bin` from the AUR |
+```bash
+mise use -g github:LalitMaganti/buildprof
+```
 
-The glibc builds run on glibc 2.28 or newer, which covers RHEL 8, Debian 10,
-and Ubuntu 18.04 onward; static musl builds are on the release page for
-everything else. The macOS build only opens traces.
+The [release page](https://github.com/LalitMaganti/buildprof/releases/latest)
+also has `.deb` and `.rpm` packages, static musl builds for Alpine and
+similar, and macOS builds for opening traces. Arch users have `buildprof-bin`
+in the AUR, and `cargo install buildprof --locked` builds from source. The
+glibc builds run on glibc 2.28 or newer, which covers RHEL 8, Debian 10, and
+Ubuntu 18.04 onward.
 
 Put the build command after `--`:
 

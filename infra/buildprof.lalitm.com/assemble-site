@@ -111,6 +111,12 @@ def main() -> int:
             print(f"==> no `{EXAMPLES_TAG}` release yet; deploying without examples")
         print(f"==> examples: {sorted(path.name for path in examples.iterdir())}")
 
+    # A short, stable installer URL; GitHub's "latest" redirect keeps it
+    # pointing at the newest release without a redeploy.
+    (site / "_redirects").write_text(
+        "/install.sh https://github.com/LalitMaganti/buildprof/releases/latest/download/buildprof-installer.sh 302\n"
+    )
+
     if args.headers is not None:
         headers = args.headers.read_text()
         for version in versions:
