@@ -1,7 +1,7 @@
 [package]
 name = "buildprof"
 version = "0.2.2"
-description = "Record Linux build processes and file access as a Perfetto trace"
+description = "Records every process and file access in a build and shows it as an interactive timeline"
 license = "Apache-2.0"
 readme = "README.md"
 homepage = "https://buildprof.lalitm.com"
@@ -50,7 +50,7 @@ assets = [
 ]
 
 [package.metadata.generate-rpm]
-summary = "Profiler for software builds"
+summary = "Records every process and file access in a build and shows it as an interactive timeline"
 license = "Apache-2.0"
 assets = [
     { source = "target/release/buildprof", dest = "/usr/bin/buildprof", mode = "755" },

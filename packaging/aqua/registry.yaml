@@ -4,7 +4,7 @@ packages:
   - type: github_release
     repo_owner: LalitMaganti
     repo_name: buildprof
-    description: Profiler for software builds that records every process and file access
+    description: Records every process and file access in a build and shows it as an interactive timeline
     asset: buildprof-{{.Arch}}-{{.OS}}.tar.xz
     format: tar.xz
     files:

@@ -25,7 +25,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
   cargoTestFlags = [ "--bins" ];
 
   meta = {
-    description = "Profiler for software builds that records every process and file access";
+    description = "Records every process and file access in a build and shows it as an interactive timeline";
     homepage = "https://buildprof.lalitm.com";
     changelog = "https://github.com/LalitMaganti/buildprof/blob/v${finalAttrs.version}/CHANGELOG.md";
     license = lib.licenses.asl20;

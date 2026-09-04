@@ -1,5 +1,5 @@
 pkgbase = buildprof-bin
-	pkgdesc = Profiler for software builds: records every process and file access and shows the build on an interactive timeline
+	pkgdesc = Records every process and file access in a build and shows it as an interactive timeline
 	pkgver = 0.2.0
 	pkgrel = 1
 	url = https://buildprof.lalitm.com

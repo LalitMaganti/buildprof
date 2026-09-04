@@ -1,8 +1,8 @@
 # Buildprof
 
-Buildprof is a profiler for software builds. It records every descendant
-process in a Linux build and turns the result into an interactive timeline you
-can explore in the browser.
+Buildprof shows where the time went in a software build. It traces every
+process a Linux build launches and turns the recording into an interactive
+timeline you can explore in the browser.
 
 It works below any individual build system, so the same view can include Cargo
 crates, Ninja jobs, compiler and linker invocations, shell scripts, code
