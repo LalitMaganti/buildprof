@@ -6,3 +6,9 @@
 
 /service_worker.js.map
   Cache-Control: no-cache, no-transform
+
+# Example recordings are fetched by the UI's JavaScript, including from
+# self-hosted copies of the UI on other origins.
+/examples/*
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=86400

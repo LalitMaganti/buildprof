@@ -1,5 +1,10 @@
 name: Deploy Buildprof UI
 
+# Runs after dist has published a GitHub release. Builds that release's UI,
+# attaches it to the release as buildprof-ui-v<version>.tar.zst, assembles the
+# site from every released UI plus the example recordings, deploys it, and
+# only then publishes the crate, so a CLI on crates.io never points at a UI
+# version that is not live.
 on:
   release:
     types: [released]
@@ -10,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   deployments: write
 
 jobs:
@@ -27,16 +32,43 @@ jobs:
       - name: Build the patched Perfetto UI
         uses: ./.github/actions/build-perfetto-ui
 
-      - name: Add Cloudflare Pages configuration
-        run: cp infra/buildprof.lalitm.com/_headers third_party/src/perfetto/out/buildprof-ui/ui/dist/_headers
+      - name: Package the UI release asset
+        run: uv run tools/perfetto package-ui --output-dir ui-asset
+
+      - name: Attach the UI to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" ui-asset/*.tar.zst --clobber
+
+      - name: Assemble the site from every released UI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          infra/buildprof.lalitm.com/assemble-site \
+            --current ui-asset/buildprof-ui-*.tar.zst \
+            --out site \
+            --headers infra/buildprof.lalitm.com/_headers
 
       - name: Validate deployment assets
-        run: infra/buildprof.lalitm.com/validate-assets
+        run: infra/buildprof.lalitm.com/validate-assets site
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy third_party/src/perfetto/out/buildprof-ui/ui/dist --project-name=buildprof --branch=main --commit-dirty=true
+          command: pages deploy site --project-name=buildprof --branch=main --commit-dirty=true
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust
+        if: github.event_name == 'release'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.91"
+
+      - name: Publish to crates.io
+        if: github.event_name == 'release'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked

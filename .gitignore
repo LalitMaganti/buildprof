@@ -21,3 +21,7 @@ third_party/src/
 # Local article capture tooling and intermediate outputs.
 /tools/capture_blog_*.mjs
 /artifacts/blog/
+
+# Assembled site tree and UI release asset produced by the deploy workflow.
+/site/
+/ui-asset/

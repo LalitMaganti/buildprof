@@ -66,10 +66,17 @@ jobs:
       - name: Build the patched Perfetto UI
         uses: ./.github/actions/build-perfetto-ui
 
-      - name: Validate deployment assets
+      # The same packaging and assembly the deploy runs, minus the deploy.
+      - name: Package and assemble the site
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cp infra/buildprof.lalitm.com/_headers third_party/src/perfetto/out/buildprof-ui/ui/dist/_headers
-          infra/buildprof.lalitm.com/validate-assets
+          uv run tools/perfetto package-ui --output-dir ui-asset
+          infra/buildprof.lalitm.com/assemble-site \
+            --current ui-asset/buildprof-ui-*.tar.zst \
+            --out site \
+            --headers infra/buildprof.lalitm.com/_headers
+          infra/buildprof.lalitm.com/validate-assets site
 
   macos:
     name: macOS viewer build

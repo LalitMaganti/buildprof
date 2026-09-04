@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
+# Sanity-check an assembled site tree before it is handed to Cloudflare Pages.
 set -euo pipefail
 
-assets=third_party/src/perfetto/out/buildprof-ui/ui/dist
+site=${1:?usage: validate-assets <site-dir>}
 maximum_bytes=$((25 * 1024 * 1024))
 
 for required in index.html service_worker.js _headers; do
-  if [[ ! -f "$assets/$required" ]]; then
-    echo "Missing required deployment asset: $assets/$required" >&2
+  if [[ ! -f "$site/$required" ]]; then
+    echo "Missing required deployment asset: $site/$required" >&2
     exit 1
   fi
 done
 
+versions=$(find "$site" -mindepth 2 -maxdepth 2 -name index.html -path '*/v[0-9]*' | wc -l)
+if (( versions == 0 )); then
+  echo "No versioned UI directory (v<version>/index.html) in $site" >&2
+  exit 1
+fi
+
 oversized=0
 while IFS= read -r -d '' asset; do
-  size=$(stat --format=%s "$asset")
+  size=$(wc -c < "$asset")
   if (( size > maximum_bytes )); then
     echo "Asset exceeds Cloudflare Pages' 25 MiB limit: $asset ($size bytes)" >&2
     oversized=1
   fi
-done < <(find "$assets" -type f -print0)
+done < <(find "$site" -type f -print0)
 
 if (( oversized )); then
   exit 1
 fi
 
-echo "Validated $(find "$assets" -type f | wc -l) Cloudflare Pages assets."
+echo "Validated $(find "$site" -type f | wc -l) Cloudflare Pages assets across $versions UI version(s)."

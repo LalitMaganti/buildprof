@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Assemble the buildprof.lalitm.com tree from every released UI.
+
+Each release contributes one archive, `buildprof-ui-v<version>.tar.zst`,
+holding the root entry page, the service worker, and a `v<version>/` asset
+directory. The site is the union of every release's asset directory with the
+newest release's root files on top, so the CLI can open exactly the UI it was
+released with while the root stays current for humans. Example recordings
+come from the `examples` release. Pages itself keeps no state between deploys.
+
+Usage: assemble-site --current <archive> --out <dir>
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+REPOSITORY = os.environ.get("BUILDPROF_REPOSITORY", "LalitMaganti/buildprof")
+EXAMPLES_TAG = "examples"
+UI_ASSET = re.compile(r"^buildprof-ui-(v\d+\.\d+\.\d+)\.tar\.zst$")
+CACHE_CONTROL = "Cache-Control: public, max-age=31536000, immutable"
+
+
+def run(*args: str | Path, capture: bool = False) -> str:
+    result = subprocess.run(
+        [str(arg) for arg in args], check=True, text=True, capture_output=capture
+    )
+    return result.stdout if capture else ""
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.lstrip("v").split("."))
+
+
+def released_ui_assets() -> dict[str, tuple[str, str]]:
+    """Map `v<version>` to the UI asset name for every published release."""
+    releases = json.loads(
+        run("gh", "api", "--paginate", "--slurp", f"repos/{REPOSITORY}/releases",
+            capture=True)
+    )
+    assets: dict[str, tuple[str, str]] = {}
+    for release in (release for page in releases for release in page):
+        if release["draft"]:
+            continue
+        for asset in release["assets"]:
+            match = UI_ASSET.match(asset["name"])
+            if match:
+                assets[match.group(1)] = (release["tag_name"], asset["name"])
+    return assets
+
+
+def extract(archive: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    run("tar", "--zstd", "-xf", archive, "-C", destination)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--current", type=Path, required=True,
+                        help="UI archive built for the release being deployed")
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--headers", type=Path,
+                        help="Cloudflare Pages _headers file to install")
+    args = parser.parse_args()
+
+    current_match = UI_ASSET.match(args.current.name)
+    if current_match is None:
+        sys.exit(f"{args.current} is not named buildprof-ui-v<version>.tar.zst")
+    current_version = current_match.group(1)
+
+    site = args.out
+    if site.exists():
+        shutil.rmtree(site)
+    site.mkdir(parents=True)
+
+    with tempfile.TemporaryDirectory() as scratch_name:
+        scratch = Path(scratch_name)
+        versions: dict[str, Path] = {}
+        for version, (tag, asset) in released_ui_assets().items():
+            if version == current_version:
+                continue
+            run("gh", "release", "download", tag, "--repo", REPOSITORY,
+                "--pattern", asset, "--dir", scratch, "--clobber")
+            versions[version] = scratch / asset
+        versions[current_version] = args.current
+
+        newest = max(versions, key=version_key)
+        for version, archive in sorted(versions.items(), key=lambda item: version_key(item[0])):
+            staging = scratch / f"unpacked-{version}"
+            extract(archive, staging)
+            shutil.copytree(staging / version, site / version)
+            if version == newest:
+                for loose in staging.iterdir():
+                    if loose.is_file():
+                        shutil.copy2(loose, site / loose.name)
+            print(f"==> {version}: {'root and ' if version == newest else ''}/{version}/")
+
+        examples = site / "examples"
+        examples.mkdir()
+        try:
+            run("gh", "release", "download", EXAMPLES_TAG, "--repo", REPOSITORY,
+                "--pattern", "*.buildprof", "--dir", examples, "--clobber")
+        except subprocess.CalledProcessError:
+            print(f"==> no `{EXAMPLES_TAG}` release yet; deploying without examples")
+        print(f"==> examples: {sorted(path.name for path in examples.iterdir())}")
+
+    if args.headers is not None:
+        headers = args.headers.read_text()
+        for version in versions:
+            headers += f"\n/{version}/*\n  {CACHE_CONTROL}\n"
+        (site / "_headers").write_text(headers)
+
+    total = sum(path.stat().st_size for path in site.rglob("*") if path.is_file())
+    print(f"==> assembled {site} ({total / 1_000_000:.1f} MB, newest {newest})")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
