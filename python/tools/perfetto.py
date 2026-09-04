@@ -265,6 +265,25 @@ def build_ui(skip_deps: bool, version_dir: str | None, no_wasm: bool) -> None:
     print(f"==> self-hostable UI: {UI_DIST} (version directory {version_dir})")
 
 
+def dev_server(extra: list[str]) -> None:
+    """Run Perfetto's watch-and-serve dev server as the Buildprof UI.
+
+    Reuses the wasm modules in the build-ui output directory and applies the
+    same version override, so the page reports the Buildprof version rather
+    than Perfetto's; `buildprof open --dev-server` points at it.
+    """
+    if patches_are_applied():
+        install_overlays()
+    else:
+        setup()
+    version_dir = f"v{buildprof_version()}"
+    os.chdir(CHECKOUT)
+    os.execv(
+        str(CHECKOUT / "ui/run-dev-server"),
+        ["ui/run-dev-server", "--out", str(UI_OUT), "--version-dir", version_dir, *extra],
+    )
+
+
 def package_ui(output_dir: Path | None) -> Path:
     """Bundle the built UI as the release asset the deploy job assembles from.
 
@@ -316,6 +335,11 @@ def main() -> int:
         "package-ui", help="archive the built UI as a release asset"
     )
     package_parser.add_argument("--output-dir", type=Path)
+    dev_parser = sub.add_parser(
+        "dev-server", help="serve the UI with live reload on localhost:10000"
+    )
+    dev_parser.add_argument("extra", nargs=argparse.REMAINDER,
+                            help="arguments passed to ui/run-dev-server")
     args = parser.parse_args()
 
     if args.command == "setup":
@@ -328,4 +352,6 @@ def main() -> int:
         build_ui(args.skip_deps, args.version_dir, args.no_wasm)
     elif args.command == "package-ui":
         package_ui(args.output_dir)
+    elif args.command == "dev-server":
+        dev_server(args.extra)
     return 0

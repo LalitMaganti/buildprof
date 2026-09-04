@@ -37,7 +37,13 @@ skips, when a build system is missing.
 ```bash
 just perfetto-setup        # pinned checkout, patches applied, overlays linked
 just perfetto-build-ui     # full build, including the wasm Trace Processor
+just perfetto-dev-server   # live-reload server on localhost:10000
+buildprof open --dev-server clean-build.buildprof
 ```
+
+Both commands apply the Buildprof version to the page, so the version
+directory and the `VERSION` the UI reports match a release rather than
+Perfetto's own version string.
 
 Overlay files under `third_party/overlays/perfetto/` are symlinked into the
 checkout, so edit them in place. Changes to upstream Perfetto files are

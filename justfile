@@ -57,3 +57,7 @@ perfetto-uprev revision="latest":
 # Build the patched, self-hostable Perfetto UI.
 perfetto-build-ui *args:
     uv run tools/perfetto build-ui {{args}}
+
+# Serve the UI with live reload; open traces in it with `buildprof open --dev-server`.
+perfetto-dev-server *args:
+    uv run tools/perfetto dev-server {{args}}
