@@ -267,17 +267,19 @@ jobs:
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
       # Hand-edited (see allow-dirty in dist-workspace.toml): the release is a
-      # draft titled "Buildprof <version>" with notes from infra/release-notes,
-      # so the install options match the README and the notes can be reviewed;
-      # publishing it by hand triggers the UI deploy, the crates.io publish,
-      # and the Linux packages.
+      # draft titled "Buildprof <version>", and infra/release-notes swaps the
+      # install section of dist's notes for the README's commands; publishing
+      # the draft by hand triggers the UI deploy, the crates.io publish, and
+      # the Linux packages.
       - name: Create GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
           RELEASE_TAG: "${{ needs.plan.outputs.tag }}"
+          ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
           RELEASE_COMMIT: "${{ github.sha }}"
         run: |
-          infra/release-notes "$RELEASE_TAG" > "$RUNNER_TEMP/notes.txt"
+          # Write and read notes from a file to avoid quoting breaking things
+          echo "$ANNOUNCEMENT_BODY" | infra/release-notes "$RELEASE_TAG" > "$RUNNER_TEMP/notes.txt"
 
           gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --draft --title "Buildprof ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 

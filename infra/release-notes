@@ -1,63 +1,59 @@
 #!/usr/bin/env python3
-"""Print the GitHub release notes for a tag.
+"""Rewrite the install section of dist's generated release notes.
 
-Same install options and wording as the README, followed by the version's
-section of CHANGELOG.md. dist's generated body is replaced with this in the
-release workflow so the release page, the README, and the homepage agree.
+dist's body is kept as it is (changelog first, then the download table with
+checksums); only the "Install buildprof <version>" section is replaced so the
+release page offers the same commands as the README and the homepage.
 
-Usage: release-notes v0.2.1
+Usage: release-notes v0.2.2 < dist-notes.md > notes.md
 """
 from __future__ import annotations
 
-from pathlib import Path
 import re
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
-
 INSTALL = """\
-## Install
+## Install buildprof {version}
 
-Recording requires Linux. Use whichever of these you already have:
+Recording requires Linux; the macOS build only opens traces.
 
-```bash
+### Shell script
+
+```sh
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
 ```
 
-```bash
+### Homebrew
+
+```sh
 brew install lalitmaganti/tap/buildprof
 ```
 
-```bash
+### mise
+
+```sh
 mise use -g github:LalitMaganti/buildprof
 ```
 
-`.deb`, `.rpm`, musl, and macOS builds are attached below; `cargo install
-buildprof --locked` builds from source. Linux binaries need glibc 2.28 or
-newer. The macOS build only opens traces.
-
-**Nothing is ever uploaded.** Recordings are processed entirely in your
-browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
+Debian and RPM packages are attached once the release is published.
 """
-
-
-def changelog_section(version: str) -> str:
-    text = (ROOT / "CHANGELOG.md").read_text()
-    match = re.search(
-        rf"(?ms)^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text
-    )
-    if match is None:
-        sys.exit(f"CHANGELOG.md has no section for {version}")
-    return match.group(1).strip()
 
 
 def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     version = sys.argv[1].removeprefix("v")
-    print(INSTALL)
-    print("## Changes\n")
-    print(changelog_section(version))
+    body = sys.stdin.read()
+    install = INSTALL.format(version=version)
+    rewritten, count = re.subn(
+        r"(?ms)^## Install \S+ [^\n]*\n.*?(?=^## Download |\Z)",
+        install + "\n",
+        body,
+        count=1,
+    )
+    if count != 1:
+        sys.exit("no `## Install` section found in the release notes on stdin")
+    sys.stdout.write(rewritten)
     return 0
 
 

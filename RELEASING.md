@@ -61,8 +61,9 @@ cannot express are edited in by hand, and `allow-dirty = ["ci"]` in
 `dist-workspace.toml` stops dist from overwriting them:
 
 - the GitHub release is created as a draft titled `Buildprof <version>`;
-- its notes come from `infra/release-notes`, which repeats the README's
-  install options and appends the version's `CHANGELOG.md` section.
+- `infra/release-notes` replaces the install section of dist's notes with
+  the README's commands; the changelog and the download table stay as dist
+  wrote them.
 
 To upgrade dist: bump `cargo-dist-version`, run `dist generate` with
 `allow-dirty` temporarily removed, diff the result against the committed
