@@ -51,22 +51,18 @@ mise use -g github:LalitMaganti/buildprof
 
 ## Usage
 
-Run your usual build command with `buildprof --` in front of it:
+Put `buildprof --` in front of your build command:
 
 ```bash
 buildprof -- make -j8
 ```
 
-Buildprof follows processes rather than build files, so the build system does
-not matter. Tested with Make, CMake and Meson (with Ninja), Cargo, and Go;
-shell scripts, code generators, and wrappers are recorded along the way.
+When the build finishes, the recording is saved as `output.buildprof` and
+opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
+The trace is served from localhost and never uploaded. Any build system
+works; see [Build systems](#build-systems).
 
-The recording is written to `output.buildprof`. In an interactive graphical
-session, Buildprof also serves it from localhost and opens
-[buildprof.lalitm.com](https://buildprof.lalitm.com) automatically. The trace is
-fetched directly by your browser and is not uploaded. Each release of the UI
-stays available under its own version, and the CLI opens the one it was
-released with.
+### Options
 
 Choose another output path or disable automatic opening when needed:
 
@@ -108,6 +104,24 @@ buildprof examples
 buildprof open --example ripgrep
 ```
 
+## Build systems
+
+Buildprof follows the process tree, so it does not need to understand the
+build system. These are exercised by the conformance suite on every change:
+
+- **Make**: compiles, archiving, linking, and renamed outputs.
+- **CMake with Ninja**: the configure step and the Ninja build.
+- **Meson with Ninja**: the setup step and the Ninja build.
+- **Cargo**: `rustc` invocations and linking; nightly self-profile data with
+  `--compiler-traces`.
+- **Go**: compile, assemble, and link.
+
+Anything else that runs as a child process is recorded the same way: shell
+scripts, code generators, wrapper scripts, and tools launched by the build.
+Work handed to a daemon or a remote executor happens outside the process tree
+and is not visible; use local or no-daemon modes where a build system offers
+them.
+
 ## Compiler details
 
 Process timing is usually the right level for understanding a build. When a
@@ -145,6 +159,11 @@ concurrency, file relationships, and optional compiler timing data.
 Because recording follows descendants, work delegated to an existing daemon,
 a remote executor, or another machine is outside the trace. Use local or
 no-daemon execution modes when a build system provides them.
+
+## UI versions
+
+Each release of the UI stays available under its own version, and the CLI
+opens the one it was released with, so old recordings keep working.
 
 ## Self-hosting the UI
 
