@@ -12,6 +12,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `buildprof.version` and `buildprof.trace_format` trace attributes, visible
   in Trace Processor's `metadata` table, so the UI can tell which recorder
   wrote a trace.
+- SSH sessions print the `ssh -L` port forward to run from your own machine
+  instead of trying to launch a browser on the build host.
+- `--wait <SECONDS>` bounds how long Buildprof waits for a browser to fetch a
+  trace (default 600; 0 waits forever).
+- `buildprof examples` and `buildprof open --example <NAME>` open recordings
+  hosted next to the UI.
+- Clear messages when ptrace or seccomp is unavailable (Docker without
+  `SYS_PTRACE`, Yama `ptrace_scope` 3, gVisor), when the command cannot be
+  executed, and when port 9001 is already taken.
 
 ### Changed
 

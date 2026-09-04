@@ -65,6 +65,31 @@ buildprof open clean-build.buildprof
 Recordings contain command lines and filesystem paths. Review them before
 sharing them.
 
+### Builds on a remote machine
+
+Over SSH there is no browser to launch, so Buildprof prints the port forward
+to run from your own machine instead and waits for the browser to fetch the
+trace:
+
+```bash
+ssh -L 9001:127.0.0.1:9001 user@buildhost
+```
+
+VS Code Remote and JetBrains Gateway forward the port automatically. The wait
+gives up after ten minutes; adjust it with `--wait <SECONDS>`, where `0` waits
+forever. Alternatively, copy the recording to any machine with Buildprof
+installed and run `buildprof open` there; the macOS build exists for exactly
+that.
+
+### Examples
+
+Try a hosted recording without installing anything:
+
+```bash
+buildprof examples
+buildprof open --example ripgrep
+```
+
 ## Compiler details
 
 Process timing is usually the right level for understanding a build. When a
