@@ -89,18 +89,25 @@ def ensure_checkout() -> None:
     pin = str(cfg["pin"])
     depth = int(cfg.get("fetch_depth", 300))
 
-    CHECKOUT.parent.mkdir(parents=True, exist_ok=True)
+    # The directory may already hold a restored toolchain cache (buildtools/),
+    # so initialise the repository in place instead of cloning into it.
+    CHECKOUT.mkdir(parents=True, exist_ok=True)
     if not (CHECKOUT / ".git").is_dir():
-        run(
-            "git", "clone", "--filter=blob:none", "--no-checkout",
-            url, CHECKOUT,
-        )
+        run("git", "init", "--quiet", CHECKOUT)
+        run("git", "remote", "add", "origin", url, cwd=CHECKOUT)
+        run("git", "config", "remote.origin.promisor", "true", cwd=CHECKOUT)
+        run("git", "config", "remote.origin.partialclonefilter", "blob:none", cwd=CHECKOUT)
     run("git", "remote", "set-url", "origin", url, cwd=CHECKOUT)
-    run("git", "fetch", "--depth", str(depth), "origin", pin, cwd=CHECKOUT)
-    run("git", "reset", "--hard", cwd=CHECKOUT)
-    run("git", "clean", "-fd", cwd=CHECKOUT)
-    run("git", "checkout", "--detach", pin, cwd=CHECKOUT)
+    run(
+        "git", "fetch", "--depth", str(depth), "--filter=blob:none", "origin", pin,
+        cwd=CHECKOUT,
+    )
+    # Discard local patch commits and edits. Downloaded toolchains and build
+    # output are kept: Perfetto's .gitignore does not cover everything CI
+    # restores under buildtools/, so exclude both trees explicitly.
+    run("git", "checkout", "--detach", "--force", pin, cwd=CHECKOUT)
     run("git", "reset", "--hard", pin, cwd=CHECKOUT)
+    run("git", "clean", "-fd", "-e", "buildtools", "-e", "out", cwd=CHECKOUT)
 
 
 def apply_patches() -> None:
