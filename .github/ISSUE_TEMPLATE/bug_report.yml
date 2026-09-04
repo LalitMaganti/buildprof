@@ -1,0 +1,40 @@
+name: Bug report
+description: A build that would not record, a trace that looks wrong, or a UI problem
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Buildprof version
+      description: Output of `buildprof --version`, and how it was installed.
+      placeholder: buildprof 0.2.0, via the shell installer
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Build command
+      description: The exact command you put after `--`, and the build system.
+      placeholder: buildprof -- ninja -C out
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Distribution and kernel (`uname -r`), whether this ran in Docker, Podman, gVisor, or a CI sandbox, and `cat /proc/sys/kernel/yama/ptrace_scope`.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, what you saw instead, and everything Buildprof printed to stderr.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace
+      description: If the recording can be shared, attach the `.buildprof` file or a link to it. Recordings contain command lines and file paths, so review them first.
