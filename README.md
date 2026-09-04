@@ -165,12 +165,13 @@ no-daemon execution modes when a build system provides them.
 
 ## Backwards compatibility
 
-Before 1.0, the CLI and the UI move in lockstep: a recording is meant to be
-viewed in the UI released with the same version. Every UI version stays
-deployed under its own path, the CLI opens the one matching its version, and
-the UI links to the matching version when it is handed a recording from a
-different release, so nothing stops working, but the trace format may change
-between releases.
+Before 1.0, the CLI and the UI move in lockstep at the minor version: a
+recording is meant to be viewed in a UI from the same 0.x series, and patch
+releases never change the trace format. Every UI version stays deployed under
+its own path, the CLI opens the one matching its version, and the UI links to
+the matching series when it is handed a recording from a different one, so
+nothing stops working, but the trace format may change between minor
+releases.
 
 From 1.0 onward, the trace format is stable and compatibility is permanent:
 any recording opens in every later UI, and newer UIs simply add features on

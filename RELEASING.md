@@ -72,10 +72,12 @@ the homepage overlay in step.
 
 ## Compatibility rules
 
-- Before 1.0 the CLI and UI are in lockstep: the trace format may change
-  between releases, and every released UI stays deployed forever under
-  `/v<version>/` so any recording still has a UI that reads it. The root
-  serves the newest and links to the matching version for other recordings.
+- Before 1.0 the CLI and UI are in lockstep at the minor version: the trace
+  format may change between minor releases and never in a patch release, and
+  every released UI stays deployed forever under `/v<version>/` so any
+  recording still has a UI that reads it. The root serves the newest and
+  links to the matching version when the minor version differs; patch drift
+  is not called out.
 - From 1.0 the trace format is stable. Every recording must open in every
   later UI; a change that would break that needs a `buildprof.trace_format`
   bump plus a reader for the old format in the UI, never a new UI for old

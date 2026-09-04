@@ -165,15 +165,22 @@ function matchingUiUrl(trace: Trace, recorder: string): string {
   return traceUrl ? `${base}#!/?url=${encodeURIComponent(traceUrl)}` : base;
 }
 
+/** Patch releases never change the trace format, so only major.minor counts. */
+function compatibleVersions(a: string, b: string): boolean {
+  const minor = (version: string) => version.split(".").slice(0, 2).join(".");
+  return minor(a) === minor(b);
+}
+
 /**
  * Show which recorder wrote the trace and which UI is rendering it. Every
  * released UI is deployed under /v<version>/, so a mismatch is one click from
  * the exact pairing; recordings from before the attribute existed get a hint.
+ * Patch-level drift between recorder and UI is not called out.
  */
 async function registerVersionStatus(trace: Trace): Promise<void> {
   const recorder = await recorderVersion(trace);
   const ui = VERSION.replace(/^v/, "");
-  const matches = recorder === ui;
+  const matches = recorder !== undefined && compatibleVersions(recorder, ui);
   const label =
     recorder === undefined
       ? `Buildprof ${ui} · trace predates 0.2.0`
@@ -194,7 +201,7 @@ async function registerVersionStatus(trace: Trace): Promise<void> {
             "div",
             recorder === undefined
               ? "This recording carries no version attribute; it was made by a Buildprof older than 0.2.0."
-              : "This UI matches the recorder that wrote the trace.",
+              : `Recorded with Buildprof ${recorder}; this UI reads that format.`,
           )
         : m(
             "div",
