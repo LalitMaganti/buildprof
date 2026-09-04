@@ -8,6 +8,27 @@ It works below any individual build system, so the same view can include Cargo
 crates, Ninja jobs, compiler and linker invocations, shell scripts, code
 generators, file access, and arbitrary tools launched along the way.
 
+## Quick start
+
+On the Linux machine that runs the build:
+
+```bash
+curl -fsSL https://buildprof.lalitm.com/install.sh | sh   # or Homebrew, mise, packages: see Install below
+buildprof -- make -j8                                      # your build command after --
+```
+
+When the build finishes, the recording is saved as `output.buildprof` and
+opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
+Any build system works; see [Build systems](#build-systems).
+
+**Nothing is ever uploaded.** buildprof.lalitm.com only delivers the UI
+itself. Your browser fetches the recording from localhost and processes it
+entirely in the page; no trace data leaves your machine.
+
+To see the result without installing anything, open the pre-recorded
+[ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
+in the browser:
+
 ![A clean ripgrep release build opened in Buildprof](docs/assets/ripgrep-release-clean.png)
 
 ## Why use Buildprof?
@@ -30,31 +51,6 @@ Buildprof follows the complete process tree instead. It lets you:
 
 The recording is a Perfetto protobuf trace. The UI processes it locally in
 your browser and recordings can also be queried with Perfetto Trace Processor.
-
-## Quick start
-
-### Option 1: open a pre-recorded build
-
-Nothing to install. Open the
-[ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
-in the browser.
-
-### Option 2: record your own build
-
-On the Linux machine that runs the build:
-
-```bash
-curl -fsSL https://buildprof.lalitm.com/install.sh | sh   # or Homebrew, mise, packages: see Install below
-buildprof -- make -j8                                      # your build command after --
-```
-
-When the build finishes, the recording is saved as `output.buildprof` and
-opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
-Any build system works; see [Build systems](#build-systems).
-
-**Nothing is ever uploaded.** buildprof.lalitm.com only delivers the UI
-itself. Your browser fetches the recording from localhost and processes it
-entirely in the page; no trace data leaves your machine.
 
 ## Install
 
