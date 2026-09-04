@@ -345,21 +345,3 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-
-  custom-deploy-ui:
-    needs:
-      - plan
-      - announce
-    uses: ./.github/workflows/deploy-ui.yml
-    with:
-      plan: ${{ needs.plan.outputs.val }}
-    secrets: inherit
-
-  custom-packages:
-    needs:
-      - plan
-      - announce
-    uses: ./.github/workflows/packages.yml
-    with:
-      plan: ${{ needs.plan.outputs.val }}
-    secrets: inherit
