@@ -27,3 +27,33 @@ libc = "0.2.175"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 zstd = "0.13"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Linux packages are produced from the release tarballs by
+# .github/workflows/packages.yml, so both tools run with prebuilt binaries.
+[package.metadata.deb]
+maintainer = "Lalit Maganti <lalitmaganti@gmail.com>"
+section = "devel"
+priority = "optional"
+extended-description = """\
+Buildprof records every process a build starts and every file it opens, and
+turns the recording into an interactive timeline in the browser. It works below
+any build system: Make, Ninja, CMake, Meson, Cargo, Go, and wrapper scripts."""
+assets = [
+    ["target/release/buildprof", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/buildprof/README.md", "644"],
+    ["CHANGELOG.md", "usr/share/doc/buildprof/CHANGELOG.md", "644"],
+]
+
+[package.metadata.generate-rpm]
+summary = "Profiler for software builds"
+license = "Apache-2.0"
+assets = [
+    { source = "target/release/buildprof", dest = "/usr/bin/buildprof", mode = "755" },
+    { source = "README.md", dest = "/usr/share/doc/buildprof/README.md", mode = "644", doc = true },
+    { source = "CHANGELOG.md", dest = "/usr/share/doc/buildprof/CHANGELOG.md", mode = "644", doc = true },
+]

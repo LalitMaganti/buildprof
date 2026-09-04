@@ -1,0 +1,62 @@
+name: Linux packages
+
+# Turns the glibc tarballs dist attached to a release into .deb and .rpm
+# packages and attaches those too. Runs after the release is published so the
+# tarballs already exist.
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to package (for example v0.2.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  packages:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.91"
+
+      - name: Install cargo-deb and cargo-generate-rpm
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb,cargo-generate-rpm
+
+      - name: Fetch the release binary
+        run: |
+          gh release download "$TAG" --pattern "buildprof-${{ matrix.target }}.tar.xz"
+          mkdir -p "target/${{ matrix.target }}/release"
+          tar -xJf "buildprof-${{ matrix.target }}.tar.xz" --strip-components=1 \
+            -C "target/${{ matrix.target }}/release" --wildcards '*/buildprof'
+          "target/${{ matrix.target }}/release/buildprof" --version
+
+      - name: Build packages
+        run: |
+          cargo deb --no-build --no-strip --target "${{ matrix.target }}"
+          cargo generate-rpm --target "${{ matrix.target }}"
+
+      - name: Attach packages to the release
+        run: |
+          gh release upload "$TAG" --clobber \
+            target/${{ matrix.target }}/debian/*.deb \
+            target/${{ matrix.target }}/generate-rpm/*.rpm

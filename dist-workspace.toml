@@ -1,0 +1,43 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.32.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "homebrew"]
+# Homebrew formula destination; the tap repository must exist and CI needs a
+# HOMEBREW_TAP_TOKEN secret with push access to it.
+tap = "LalitMaganti/homebrew-tap"
+publish-jobs = ["homebrew"]
+# Recording is Linux-only; macOS builds exist for `buildprof open`.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Where to host releases
+hosting = "github"
+# Whether to install an updater program
+install-updater = false
+# glibc builds are the primary artefacts; build them against an old glibc so
+# RHEL 8, Debian 10, and Ubuntu 18.04 onward can run them. musl is the
+# fallback for Alpine and unusual systems, not the default, because its
+# allocator is slower for the recorder.
+[dist.min-glibc-version]
+"*" = "2.28"
+
+[dist.github-custom-runners.x86_64-unknown-linux-gnu]
+container = { image = "quay.io/pypa/manylinux_2_28_x86_64", host = "x86_64-unknown-linux-musl" }
+
+[dist.github-custom-runners.aarch64-unknown-linux-gnu]
+runner = "ubuntu-22.04-arm"
+container = { image = "quay.io/pypa/manylinux_2_28_aarch64", host = "aarch64-unknown-linux-musl" }
