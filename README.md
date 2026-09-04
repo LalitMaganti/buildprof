@@ -54,21 +54,43 @@ Buildprof follows the complete process tree instead. It lets you:
 
 ## Install
 
-Use whichever of these you already have (see the
-[Releases page](https://github.com/LalitMaganti/buildprof/releases/latest)
-for more options):
+Pick whichever of these you already have. Recording needs Linux; the macOS
+builds exist so that `buildprof open` can view a recording copied from a build
+machine.
+
+**Shell installer** (Linux and macOS):
 
 ```bash
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
 ```
 
+**Homebrew** (Linux and macOS):
+
 ```bash
 brew install lalitmaganti/tap/buildprof
 ```
 
+**mise**:
+
 ```bash
 mise use -g github:LalitMaganti/buildprof
 ```
+
+**Cargo** (builds from source; needs Rust 1.91 or newer):
+
+```bash
+cargo install --locked buildprof
+```
+
+**Debian, Ubuntu, Fedora, and other `.deb` or `.rpm` distributions**: download
+the package for your architecture from the
+[latest release](https://github.com/LalitMaganti/buildprof/releases/latest)
+and install it with `apt install ./buildprof_*.deb` or
+`dnf install ./buildprof-*.rpm`.
+
+**Tarballs**: the same release page carries prebuilt binaries for x86_64 and
+aarch64 Linux, both glibc and static musl, and for Intel and Apple silicon
+Macs.
 
 ## Usage
 
