@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Rewrite the install section of dist's generated release notes.
+"""Reshape dist's generated release notes for the release page.
 
-dist's body is kept as it is (changelog first, then the download table with
-checksums); only the "Install buildprof <version>" section is replaced so the
-release page offers the same commands as the README and the homepage.
+dist's body (changelog, install, download table with checksums) is kept in
+that order. This adds a one-line description at the top, replaces the install
+section with the README's commands, and uses smaller headings throughout.
 
 Usage: release-notes v0.2.2 < dist-notes.md > notes.md
 """
@@ -12,48 +12,59 @@ from __future__ import annotations
 import re
 import sys
 
+TAGLINE = (
+    "Buildprof records every process a build starts and every file it opens, "
+    "and shows the whole build on an interactive timeline in your browser. "
+    "Nothing is ever uploaded.\n"
+)
+
 INSTALL = """\
-## Install buildprof {version}
+### Install
 
-Recording requires Linux; the macOS build only opens traces.
+Recording requires Linux; the macOS build only opens traces. Use whichever of
+these you already have:
 
-### Shell script
+**Shell script**
 
 ```sh
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
 ```
 
-### Homebrew
+**Homebrew**
 
 ```sh
 brew install lalitmaganti/tap/buildprof
 ```
 
-### mise
+**mise**
 
 ```sh
 mise use -g github:LalitMaganti/buildprof
 ```
-
-Debian and RPM packages are attached once the release is published.
 """
 
 
 def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(__doc__)
-    version = sys.argv[1].removeprefix("v")
     body = sys.stdin.read()
-    install = INSTALL.format(version=version)
-    rewritten, count = re.subn(
-        r"(?ms)^## Install \S+ [^\n]*\n.*?(?=^## Download |\Z)",
-        install + "\n",
+
+    # Demote every heading one level so the page reads as sections of the
+    # release rather than a document of its own.
+    body = re.sub(r"(?m)^(#{2,5}) ", lambda m: "#" + m.group(1) + " ", body)
+    body = re.sub(r"(?m)^### Release Notes[ \t]*$", "### Changes", body)
+    body = re.sub(r"(?m)^### Download \S+ [^\n]*$", "### Downloads", body)
+
+    body, count = re.subn(
+        r"(?ms)^### Install \S+ [^\n]*\n.*?(?=^### Downloads|\Z)",
+        INSTALL + "\n",
         body,
         count=1,
     )
     if count != 1:
-        sys.exit("no `## Install` section found in the release notes on stdin")
-    sys.stdout.write(rewritten)
+        sys.exit("no install section found in the release notes on stdin")
+
+    sys.stdout.write(TAGLINE + "\n" + body.lstrip("\n"))
     return 0
 
 
