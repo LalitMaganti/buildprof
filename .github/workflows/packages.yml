@@ -18,11 +18,17 @@ permissions:
 jobs:
   packages:
     name: ${{ matrix.target }}
-    runs-on: ubuntu-24.04
+    # Each target on a runner of its own architecture, so the extracted binary
+    # can be executed as a sanity check before it is packaged.
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
       GH_TOKEN: ${{ github.token }}
