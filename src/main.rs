@@ -3,9 +3,12 @@ mod args;
 mod compiler;
 #[cfg(target_os = "linux")]
 mod linux;
-#[cfg(target_os = "linux")]
+// The trace model and writer are portable; only recording is Linux-specific.
+// Building them everywhere keeps the writer's unit tests running on every
+// platform the viewer ships on.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod model;
-#[cfg(target_os = "linux")]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod perfetto;
 
 use std::process::ExitCode;

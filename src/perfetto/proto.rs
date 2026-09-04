@@ -31,6 +31,18 @@ mod packet {
     pub(super) const SEQUENCE_FLAGS: u32 = 13;
     pub(super) const TRACK_DESCRIPTOR: u32 = 60;
     pub(super) const EXTENSION_DESCRIPTOR: u32 = 72;
+    pub(super) const TRACE_ATTRIBUTES: u32 = 126;
+    pub(super) const ZSTD_COMPRESSED_PACKETS: u32 = 133;
+}
+
+mod trace_attributes {
+    pub(super) const ATTRIBUTE: u32 = 1;
+}
+
+mod trace_attribute {
+    pub(super) const KEY: u32 = 1;
+    pub(super) const LONG_VALUE: u32 = 2;
+    pub(super) const STRING_VALUE: u32 = 3;
 }
 
 mod track_descriptor {
@@ -121,6 +133,13 @@ mod field_descriptor {
     pub(super) const TYPE_UINT32: u32 = 13;
 }
 
+/// A value stored in Perfetto's metadata table under `trace_attribute.<key>`.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum AttributeValue<'a> {
+    Long(i64),
+    Str(&'a str),
+}
+
 pub(super) struct Trace<'encoder, 'output> {
     encoder: &'encoder mut Encoder<'output>,
 }
@@ -167,6 +186,36 @@ impl Packet<'_, '_> {
             packet::SEQUENCE_FLAGS,
             u64::from(SEQUENCE_NEEDS_INCREMENTAL_STATE),
         )
+    }
+
+    /// A batch of complete packets compressed with zstd. Trace Processor
+    /// expands these while tokenizing, so the batch must not itself contain
+    /// compressed packets.
+    pub(super) fn zstd_compressed_packets(&mut self, packets: &[u8]) -> io::Result<()> {
+        self.encoder.bytes(packet::ZSTD_COMPRESSED_PACKETS, packets)
+    }
+
+    pub(super) fn trace_attributes(
+        &mut self,
+        attributes: &[(&str, AttributeValue<'_>)],
+    ) -> io::Result<()> {
+        self.encoder
+            .message(packet::TRACE_ATTRIBUTES, &mut |message| {
+                for (key, value) in attributes {
+                    message.message(trace_attributes::ATTRIBUTE, &mut |attribute| {
+                        attribute.string(trace_attribute::KEY, key)?;
+                        match value {
+                            AttributeValue::Long(value) => {
+                                attribute.int(trace_attribute::LONG_VALUE, *value)
+                            }
+                            AttributeValue::Str(value) => {
+                                attribute.string(trace_attribute::STRING_VALUE, value)
+                            }
+                        }
+                    })?;
+                }
+                Ok(())
+            })
     }
 
     pub(super) fn intern_debug_annotation(

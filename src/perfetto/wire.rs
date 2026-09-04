@@ -37,6 +37,11 @@ impl<'a> Encoder<'a> {
         self.varint(value)
     }
 
+    /// Encodes a protobuf `int64`, which is a two's-complement varint.
+    pub(super) fn int(&mut self, field: u32, value: i64) -> io::Result<()> {
+        self.uint(field, value as u64)
+    }
+
     pub(super) fn boolean(&mut self, field: u32, value: bool) -> io::Result<()> {
         self.uint(field, u64::from(value))
     }

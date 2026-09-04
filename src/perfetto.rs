@@ -1,14 +1,24 @@
 use crate::model::{FileOpen, Process, Rename, Segment};
+use proto::AttributeValue;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use wire::Encoder;
+use zstd::stream::write::Encoder as Compressor;
 
 mod proto;
 mod wire;
 
 const OUTPUT_BUFFER_BYTES: usize = 64 * 1024;
+/// zstd level for the whole-file stream. Level 3 already shrinks a build trace
+/// about nine times over and compresses at well over a gigabyte a second, so
+/// it costs the recorder nothing measurable; higher levels gain little.
+const COMPRESSION_LEVEL: i32 = 3;
+/// Bumped whenever the UI needs to tell traces apart to read them correctly.
+pub const TRACE_FORMAT_VERSION: i64 = 1;
+const VERSION_ATTRIBUTE: &str = "buildprof.version";
+const TRACE_FORMAT_ATTRIBUTE: &str = "buildprof.trace_format";
 const PROCESS_MERGE_KEY: &str = "buildprof.processes";
 const FILE_MERGE_KEY: &str = "buildprof.files";
 const PROCESS_CATEGORY: &str = "buildprof.process";
@@ -24,13 +34,15 @@ const COMPILER_TRACK_BACKEND_SHIFT: u32 = 29;
 const COMPILER_TRACK_THREAD_MASK: u64 = (1 << COMPILER_TRACK_BACKEND_SHIFT) - 1;
 const MINIMUM_SLICE_DURATION_NS: u64 = 1;
 
-/// Incrementally writes trace packets to a buffered file.
+/// Incrementally writes trace packets to a zstd-compressed file.
 ///
-/// No protobuf message tree or encoded packet is retained. Nested message
-/// lengths are obtained with an allocation-free counting pass immediately
-/// before the bytes are written.
+/// The whole file is one zstd stream around an ordinary Perfetto protobuf
+/// trace; Trace Processor detects the compression from the magic bytes. No
+/// protobuf message tree or encoded packet is retained. Nested message lengths
+/// are obtained with an allocation-free counting pass immediately before the
+/// bytes are written.
 pub struct Writer {
-    output: BufWriter<File>,
+    output: Compressor<'static, BufWriter<File>>,
     annotation_names: HashMap<String, u64>,
     annotation_values: HashMap<String, u64>,
 }
@@ -38,8 +50,9 @@ pub struct Writer {
 impl Writer {
     pub fn create(path: &Path) -> io::Result<Self> {
         let file = File::create(path)?;
+        let buffered = BufWriter::with_capacity(OUTPUT_BUFFER_BYTES, file);
         let mut writer = Self {
-            output: BufWriter::with_capacity(OUTPUT_BUFFER_BYTES, file),
+            output: Compressor::new(buffered, COMPRESSION_LEVEL)?,
             annotation_names: HashMap::new(),
             annotation_values: HashMap::new(),
         };
@@ -208,13 +221,25 @@ impl Writer {
         })
     }
 
-    pub fn finish(mut self) -> io::Result<()> {
-        self.output.flush()
+    pub fn finish(self) -> io::Result<()> {
+        self.output.finish()?.flush()
     }
 
     fn write_preamble(&mut self) -> io::Result<()> {
         self.with_encoder(|trace| {
             trace.packet(&mut |packet| packet.extension_descriptor())?;
+            trace.packet(&mut |packet| {
+                packet.trace_attributes(&[
+                    (
+                        VERSION_ATTRIBUTE,
+                        AttributeValue::Str(env!("CARGO_PKG_VERSION")),
+                    ),
+                    (
+                        TRACE_FORMAT_ATTRIBUTE,
+                        AttributeValue::Long(TRACE_FORMAT_VERSION),
+                    ),
+                ])
+            })?;
             trace.packet(&mut |packet| {
                 packet.sequence_start()?;
                 packet.track_descriptor(proto::ROOT_TRACK_UUID, None, "Build", None)
@@ -299,5 +324,40 @@ fn compiler_backend_discriminator(backend: &str) -> u64 {
         "Clang" => 1,
         "LLD" => 2,
         _ => 3,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
+    const TRACE_PACKET_TAG: u8 = 0x0a;
+
+    #[test]
+    fn writes_a_zstd_stream_carrying_the_provenance_attributes() {
+        let path = std::env::temp_dir().join(format!(
+            "buildprof-writer-test-{}-{}.buildprof",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut writer = Writer::create(&path).unwrap();
+        writer.process_started(42).unwrap();
+        writer.finish().unwrap();
+
+        let compressed = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(&compressed[..4], &ZSTD_MAGIC);
+
+        let trace = zstd::decode_all(compressed.as_slice()).unwrap();
+        assert_eq!(trace[0], TRACE_PACKET_TAG);
+        let contains = |needle: &[u8]| trace.windows(needle.len()).any(|w| w == needle);
+        assert!(contains(VERSION_ATTRIBUTE.as_bytes()));
+        assert!(contains(env!("CARGO_PKG_VERSION").as_bytes()));
+        assert!(contains(TRACE_FORMAT_ATTRIBUTE.as_bytes()));
+        assert!(contains(b"Processes"));
     }
 }
