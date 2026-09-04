@@ -65,6 +65,10 @@ opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
 The trace is served from localhost and never uploaded. Any build system
 works; see [Build systems](#build-systems).
 
+If you just want to try the UI first, open our
+[example recording of a ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
+without installing anything.
+
 ### Options
 
 Choose another output path or disable automatic opening when needed:
@@ -97,15 +101,6 @@ gives up after ten minutes; adjust it with `--wait <SECONDS>`, where `0` waits
 forever. Alternatively, copy the recording to any machine with Buildprof
 installed and run `buildprof open` there; the macOS build exists for exactly
 that.
-
-### Examples
-
-Try a hosted recording without installing anything:
-
-```bash
-buildprof examples
-buildprof open --example ripgrep
-```
 
 ## Build systems
 
