@@ -73,8 +73,6 @@ mise use -g github:LalitMaganti/buildprof
 
 ## Usage
 
-### Options
-
 Choose another output path or disable automatic opening when needed:
 
 ```bash
