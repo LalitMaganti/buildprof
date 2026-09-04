@@ -266,17 +266,21 @@ jobs:
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
+      # Hand-edited (see allow-dirty in dist-workspace.toml): the release is a
+      # draft titled "Buildprof <version>" so the notes can be reviewed;
+      # publishing it by hand triggers the UI deploy, the crates.io publish,
+      # and the Linux packages.
       - name: Create GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-          ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
+          RELEASE_TAG: "${{ needs.plan.outputs.tag }}"
           ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
           RELEASE_COMMIT: "${{ github.sha }}"
         run: |
           # Write and read notes from a file to avoid quoting breaking things
           echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
 
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          gh release create "$RELEASE_TAG" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --draft --title "Buildprof ${RELEASE_TAG#v}" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
   publish-homebrew-formula:
     needs:
@@ -341,3 +345,21 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  custom-deploy-ui:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/deploy-ui.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit
+
+  custom-packages:
+    needs:
+      - plan
+      - announce
+    uses: ./.github/workflows/packages.yml
+    with:
+      plan: ${{ needs.plan.outputs.val }}
+    secrets: inherit

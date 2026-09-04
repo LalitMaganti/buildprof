@@ -23,13 +23,19 @@ Also create the empty `homebrew-tap` repository.
    Re-record `examples/*.buildprof` with this version if the trace format
    changed (see `examples/README.md`).
 2. Run `just release-check`, commit, push, and wait for CI.
-3. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
+3. Tag and push: `git tag v0.2.1 && git push origin v0.2.1`.
+4. Review the draft release `Buildprof <version>` that appears on GitHub,
+   edit the notes as needed, and publish it.
 
 Then, in order:
 
 - `release.yml` (dist) builds glibc 2.28, musl, and macOS binaries, the shell
-  installer, checksums, and the Homebrew formula, and publishes the GitHub
-  release.
+  installer, checksums, and the Homebrew formula, and creates the GitHub
+  release as a draft. The Homebrew formula points at the release's assets, so
+  `brew install` works once the release is published.
+- Publishing the release by hand is what fires the next two workflows; a
+  release published by automation would not, which is why the draft step is
+  not optional.
 - `https://buildprof.lalitm.com/install.sh` is a redirect to the latest
   release's installer, written by `assemble-site`, so it needs no update.
 - `deploy-ui.yml` builds this release's UI, attaches

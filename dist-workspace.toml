@@ -13,6 +13,11 @@ installers = ["shell", "homebrew"]
 # HOMEBREW_TAP_TOKEN secret with push access to it.
 tap = "LalitMaganti/homebrew-tap"
 publish-jobs = ["homebrew"]
+# release.yml is hand-edited after generation so the GitHub Release is created
+# as a draft titled "Buildprof <version>" for review; publishing it by hand is
+# what triggers the UI deploy, the crates.io publish, and the Linux packages
+# (a release published by GITHUB_TOKEN would not trigger them).
+allow-dirty = ["ci"]
 # Recording is Linux-only; macOS builds exist for `buildprof open`.
 targets = [
     "x86_64-unknown-linux-gnu",
