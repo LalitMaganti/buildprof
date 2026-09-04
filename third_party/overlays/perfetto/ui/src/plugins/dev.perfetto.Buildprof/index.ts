@@ -1,6 +1,7 @@
 // Copyright 2026 The Buildprof Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+import "./topbar.scss";
 import m from "mithril";
 import type { App } from "../../public/app";
 import type { PerfettoPlugin } from "../../public/plugin";
@@ -218,29 +219,18 @@ export default class BuildprofPlugin implements PerfettoPlugin {
     });
     app.sidebar.addMenuItem({
       section: "support",
-      sortOrder: 10,
-      topbar: true,
-      topbarPosition: "right",
-      text: "How to navigate",
-      icon: "help_outline",
-      cssClass: "pf-topbar-icon-only",
-      tooltip: "How to navigate",
-      action: showBuildprofHelp,
-    });
-    app.sidebar.addMenuItem({
-      section: "support",
-      sortOrder: 20,
+      sortOrder: 30,
       topbar: true,
       topbarPosition: "right",
       text: "Report a bug",
       icon: "bug_report",
-      cssClass: "pf-topbar-icon-only",
+      cssClass: "pf-topbar-icon-only bt-topbar-divider",
       tooltip: "Report a bug",
       href: "https://github.com/lalitmaganti/buildprof/issues/new",
     });
     app.sidebar.addMenuItem({
       section: "support",
-      sortOrder: 30,
+      sortOrder: 40,
       topbar: true,
       topbarPosition: "right",
       text: "GitHub",
@@ -248,6 +238,17 @@ export default class BuildprofPlugin implements PerfettoPlugin {
       cssClass: "pf-topbar-icon-only",
       tooltip: "Buildprof on GitHub",
       href: "https://github.com/lalitmaganti/buildprof",
+    });
+    app.sidebar.addMenuItem({
+      section: "support",
+      sortOrder: 50,
+      topbar: true,
+      topbarPosition: "right",
+      text: "How to navigate",
+      icon: "help_outline",
+      cssClass: "pf-topbar-icon-only",
+      tooltip: "How to navigate",
+      action: showBuildprofHelp,
     });
   }
 
@@ -259,10 +260,21 @@ export default class BuildprofPlugin implements PerfettoPlugin {
 
     await registerVersionStatus(trace);
 
+    trace.sidebar.addMenuItem({
+      section: "current_trace",
+      sortOrder: 10,
+      topbar: true,
+      topbarPosition: "right",
+      text: "Share trace",
+      icon: "share",
+      cssClass: "pf-topbar-icon-only",
+      tooltip: "Share trace (not available yet; follow or comment on the issue)",
+      action: explainSharing,
+    });
     if (trace.traceInfo.downloadable) {
       trace.sidebar.addMenuItem({
         section: "current_trace",
-        sortOrder: 10,
+        sortOrder: 20,
         topbar: true,
         topbarPosition: "right",
         text: "Download trace",
@@ -272,16 +284,6 @@ export default class BuildprofPlugin implements PerfettoPlugin {
         action: () => downloadTrace(trace),
       });
     }
-
-    trace.sidebar.addMenuItem({
-      section: "current_trace",
-      sortOrder: 20,
-      topbar: true,
-      text: "Share trace",
-      icon: "share",
-      tooltip: "Not available yet; follow or comment on the issue",
-      action: explainSharing,
-    });
 
     edgesReady = undefined;
     if ((await materialise(trace)) === 0) return;

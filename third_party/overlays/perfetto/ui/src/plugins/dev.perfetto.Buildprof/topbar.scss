@@ -1,0 +1,10 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+// Divides the trace actions (share, download) from the support links on the
+// right of the topbar; the topbar has no separator concept of its own.
+.bt-topbar-divider {
+  margin-left: 6px;
+  padding-left: 6px;
+  border-left: 1px solid var(--pf-color-border);
+}
