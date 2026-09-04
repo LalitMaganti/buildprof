@@ -51,7 +51,10 @@ mise use -g github:LalitMaganti/buildprof
 
 ## Usage
 
-Put `buildprof --` in front of your build command:
+Either open our
+[example recording of a ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof),
+which needs nothing installed, or record your own build by putting
+`buildprof --` in front of the build command:
 
 ```bash
 buildprof -- make -j8
@@ -64,10 +67,6 @@ When the build finishes, the recording is saved as `output.buildprof` and
 opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
 The trace is served from localhost and never uploaded. Any build system
 works; see [Build systems](#build-systems).
-
-If you just want to try the UI first, open our
-[example recording of a ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
-without installing anything.
 
 ### Options
 
