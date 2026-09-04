@@ -5,7 +5,6 @@ description = "Record Linux build processes and file access as a Perfetto trace"
 license = "Apache-2.0"
 readme = "README.md"
 homepage = "https://buildprof.lalitm.com"
-documentation = "https://docs.rs/buildprof"
 repository = "https://github.com/lalitmaganti/buildprof"
 keywords = ["build", "profiling", "perfetto", "tracing"]
 categories = ["command-line-utilities", "development-tools::profiling"]
