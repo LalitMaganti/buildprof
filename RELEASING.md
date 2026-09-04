@@ -23,7 +23,7 @@ Also create the empty `homebrew-tap` repository.
    Re-record `examples/*.buildprof` with this version if the trace format
    changed (see `examples/README.md`).
 2. Run `just release-check`, commit, push, and wait for CI.
-3. Tag and push: `git tag v0.2.1 && git push origin v0.2.1`.
+3. Tag and push: `git tag v0.2.2 && git push origin v0.2.2`.
 4. Review the draft release `Buildprof <version>` that appears on GitHub,
    edit the notes as needed, and publish it.
 

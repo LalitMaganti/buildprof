@@ -7,6 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-04
+
+### Changed
+
+- The UI no longer calls out a recorder that differs from it only in the
+  patch version; patch releases never change the trace format.
+- Release notes list the same install options as the README, followed by the
+  version's changelog section.
+
+### Fixed
+
+- `.deb` and `.rpm` packages for aarch64 are built on an arm64 runner instead
+  of failing the sanity check on x86_64.
+
 ## [0.2.1] - 2026-09-04
 
 ### Fixed
