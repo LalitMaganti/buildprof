@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Fri, 4 Sep 2026 12:56:49 +0100
+Subject: nopr: allow the Buildprof sharing service through the service worker
+ firewall
+
+---
+ ui/src/service_worker/service_worker.ts | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/ui/src/service_worker/service_worker.ts b/ui/src/service_worker/service_worker.ts
+index 29f78e6360..83cb443c1a 100644
+--- a/ui/src/service_worker/service_worker.ts
++++ b/ui/src/service_worker/service_worker.ts
+@@ -63,6 +63,9 @@ const ALLOWLISTED_DOMAINS = [
+   /\.googleapis\.com$/, // For Google Cloud Storage fetches.
+   /\.google-analytics\.com$/, // For analytics.
+   /\.googletagmanager\.com$/, // For analytics.
++  // The Buildprof sharing service: the Share action POSTs the trace to it
++  // after the user confirms, which the GET-only default would block.
++  /^buildprofusercontent\.lalitm\.com$/,
+ ];
+ 
+ function isAllowlistedDomain(hostname: string): boolean {
