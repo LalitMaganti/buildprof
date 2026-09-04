@@ -13,16 +13,15 @@ Repository secrets:
 | `HOMEBREW_TAP_TOKEN` | `release.yml`, pushes the formula to `LalitMaganti/homebrew-tap` |
 | `CARGO_REGISTRY_TOKEN` | `deploy-ui.yml`, `cargo publish` after the UI is live |
 
-Also create the empty `homebrew-tap` repository, and publish the example
-recordings once with `infra/buildprof.lalitm.com/publish-examples` (they need
-to be recorded with the version being released, or newer, so they carry a
-version attribute).
+Also create the empty `homebrew-tap` repository.
 
 ## Each release
 
 1. Move the `Unreleased` section of `CHANGELOG.md` under the new version and
    date, and set `version` in `Cargo.toml`. The crate version names the UI's
    `/v<version>/` directory and is what the CLI opens, so they must match.
+   Re-record `examples/*.buildprof` with this version if the trace format
+   changed (see `examples/README.md`).
 2. Run `just release-check`, commit, push, and wait for CI.
 3. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 
@@ -35,8 +34,8 @@ Then, in order:
   release's installer, written by `assemble-site`, so it needs no update.
 - `deploy-ui.yml` builds this release's UI, attaches
   `buildprof-ui-v<version>.tar.zst` to the release, assembles the site from
-  every released UI and the examples, deploys it, and only then publishes the
-  crate to crates.io.
+  every released UI plus `examples/*.buildprof`, deploys it, and only then
+  publishes the crate to crates.io.
 - `packages.yml` attaches `.deb` and `.rpm` packages built from the release
   tarballs.
 

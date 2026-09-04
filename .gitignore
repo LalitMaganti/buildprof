@@ -5,6 +5,7 @@ __pycache__/
 *.pftrace
 *.buildtrace
 *.buildprof
+!/examples/*.buildprof
 !third_party/overlays/perfetto/ui/src/plugins/dev.perfetto.Buildprof/
 .dev-container-id
 third_party/src/

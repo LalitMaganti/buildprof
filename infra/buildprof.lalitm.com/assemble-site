@@ -5,8 +5,9 @@ Each release contributes one archive, `buildprof-ui-v<version>.tar.zst`,
 holding the root entry page, the service worker, and a `v<version>/` asset
 directory. The site is the union of every release's asset directory with the
 newest release's root files on top, so the CLI can open exactly the UI it was
-released with while the root stays current for humans. Example recordings
-come from the `examples` release. Pages itself keeps no state between deploys.
+released with while the root stays current for humans. Example recordings are
+the `examples/*.buildprof` files in the repository. Pages itself keeps no
+state between deploys.
 
 Usage: assemble-site --current <archive> --out <dir>
 """
@@ -23,9 +24,12 @@ import sys
 import tempfile
 
 REPOSITORY = os.environ.get("BUILDPROF_REPOSITORY", "LalitMaganti/buildprof")
-EXAMPLES_TAG = "examples"
+ROOT = Path(__file__).resolve().parents[2]
+EXAMPLES = ROOT / "examples"
 UI_ASSET = re.compile(r"^buildprof-ui-(v\d+\.\d+\.\d+)\.tar\.zst$")
 CACHE_CONTROL = "Cache-Control: public, max-age=31536000, immutable"
+ZSTD_MAGIC = bytes.fromhex("28b52ffd")
+PAGES_ASSET_LIMIT = 25 * 1024 * 1024
 
 
 def run(*args: str | Path, capture: bool = False) -> str:
@@ -102,14 +106,16 @@ def main() -> int:
                         shutil.copy2(loose, site / loose.name)
             print(f"==> {version}: {'root and ' if version == newest else ''}/{version}/")
 
-        examples = site / "examples"
-        examples.mkdir()
-        try:
-            run("gh", "release", "download", EXAMPLES_TAG, "--repo", REPOSITORY,
-                "--pattern", "*.buildprof", "--dir", examples, "--clobber")
-        except subprocess.CalledProcessError:
-            print(f"==> no `{EXAMPLES_TAG}` release yet; deploying without examples")
-        print(f"==> examples: {sorted(path.name for path in examples.iterdir())}")
+    examples = site / "examples"
+    examples.mkdir()
+    for recording in sorted(EXAMPLES.glob("*.buildprof")):
+        with open(recording, "rb") as handle:
+            if handle.read(4) != ZSTD_MAGIC:
+                sys.exit(f"{recording} is not a zstd stream; record it with Buildprof 0.2.0 or newer")
+        if recording.stat().st_size > PAGES_ASSET_LIMIT:
+            sys.exit(f"{recording} exceeds Cloudflare Pages' 25 MiB asset limit")
+        shutil.copy2(recording, examples / recording.name)
+    print(f"==> examples: {sorted(path.name for path in examples.iterdir())}")
 
     # A short, stable installer URL; GitHub's "latest" redirect keeps it
     # pointing at the newest release without a redeploy.
