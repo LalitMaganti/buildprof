@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Print the GitHub release notes for a tag.
+
+Same install options and wording as the README, followed by the version's
+section of CHANGELOG.md. dist's generated body is replaced with this in the
+release workflow so the release page, the README, and the homepage agree.
+
+Usage: release-notes v0.2.1
+"""
+from __future__ import annotations
+
+from pathlib import Path
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+
+INSTALL = """\
+## Install
+
+Recording requires Linux. Use whichever of these you already have:
+
+```bash
+curl -fsSL https://buildprof.lalitm.com/install.sh | sh
+```
+
+```bash
+brew install lalitmaganti/tap/buildprof
+```
+
+```bash
+mise use -g github:LalitMaganti/buildprof
+```
+
+`.deb`, `.rpm`, musl, and macOS builds are attached below; `cargo install
+buildprof --locked` builds from source. Linux binaries need glibc 2.28 or
+newer. The macOS build only opens traces.
+
+**Nothing is ever uploaded.** Recordings are processed entirely in your
+browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
+"""
+
+
+def changelog_section(version: str) -> str:
+    text = (ROOT / "CHANGELOG.md").read_text()
+    match = re.search(
+        rf"(?ms)^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[|\Z)", text
+    )
+    if match is None:
+        sys.exit(f"CHANGELOG.md has no section for {version}")
+    return match.group(1).strip()
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
+    version = sys.argv[1].removeprefix("v")
+    print(INSTALL)
+    print("## Changes\n")
+    print(changelog_section(version))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
