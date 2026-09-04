@@ -55,6 +55,9 @@ Put `buildprof --` in front of your build command:
 
 ```bash
 buildprof -- make -j8
+buildprof -- ninja -C out
+buildprof -- cargo build
+buildprof -- go build ./...
 ```
 
 When the build finishes, the recording is saved as `output.buildprof` and
