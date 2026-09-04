@@ -47,7 +47,7 @@ mise use -g github:LalitMaganti/buildprof
 def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(__doc__)
-    body = sys.stdin.read()
+    body = sys.stdin.read().replace("\r\n", "\n")
 
     # Demote every heading one level so the page reads as sections of the
     # release rather than a document of its own.
