@@ -31,9 +31,11 @@ Buildprof follows the complete process tree instead. It lets you:
 The recording is a Perfetto protobuf trace. The UI processes it locally in
 your browser and recordings can also be queried with Perfetto Trace Processor.
 
-## Quick start
+## Install
 
-Recording requires Linux. Install with whichever of these you already use:
+Recording requires Linux. Use whichever of these you already have (see the
+[Releases page](https://github.com/LalitMaganti/buildprof/releases/latest)
+for more options):
 
 ```bash
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
@@ -47,16 +49,17 @@ brew install lalitmaganti/tap/buildprof
 mise use -g github:LalitMaganti/buildprof
 ```
 
-`.deb`, `.rpm`, musl, and macOS builds are on the
-[release page](https://github.com/LalitMaganti/buildprof/releases/latest);
-`cargo install buildprof --locked` builds from source. Linux binaries need
-glibc 2.28 or newer.
+## Usage
 
-Put the build command after `--`:
+Run your usual build command with `buildprof --` in front of it:
 
 ```bash
-buildprof -- cargo build --release
+buildprof -- make -j8
 ```
+
+Buildprof follows processes rather than build files, so the build system does
+not matter. Tested with Make, CMake and Meson (with Ninja), Cargo, and Go;
+shell scripts, code generators, and wrappers are recorded along the way.
 
 The recording is written to `output.buildprof`. In an interactive graphical
 session, Buildprof also serves it from localhost and opens
@@ -68,7 +71,7 @@ released with.
 Choose another output path or disable automatic opening when needed:
 
 ```bash
-buildprof -o clean-build.buildprof --no-open -- make -j8
+buildprof -o clean-build.buildprof --no-open -- ninja -C out
 ```
 
 Open an existing recording later with:
