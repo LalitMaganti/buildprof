@@ -10,7 +10,7 @@ command is unaffected.
  1 file changed, 10 insertions(+), 6 deletions(-)
 
 diff --git a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
-index fbbda80688..5bc2cd13cb 100644
+index fbbda80688..13f797f5b3 100644
 --- a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
 +++ b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
 @@ -324,12 +324,16 @@ export default class CoreCommands implements PerfettoPlugin {

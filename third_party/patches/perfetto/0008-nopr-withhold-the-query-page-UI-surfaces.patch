@@ -12,7 +12,7 @@ be presented.
  1 file changed, 9 insertions(+), 3 deletions(-)
 
 diff --git a/ui/src/plugins/dev.perfetto.QueryPage/index.ts b/ui/src/plugins/dev.perfetto.QueryPage/index.ts
-index 31ff357d1b..d78903e2a3 100644
+index 31ff357d1b..1ac7f4f865 100644
 --- a/ui/src/plugins/dev.perfetto.QueryPage/index.ts
 +++ b/ui/src/plugins/dev.perfetto.QueryPage/index.ts
 @@ -312,7 +312,13 @@ export default class QueryPagePlugin implements PerfettoPlugin {

@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Fri, 4 Sep 2026 02:31:22 +0100
+Subject: nopr: allow embedders to override the UI version directory
+
+---
+ ui/build.mjs       | 15 +++++++++++++--
+ ui/vite.config.mjs |  5 ++++-
+ 2 files changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/ui/build.mjs b/ui/build.mjs
+index 8b6ee9d6a1..14633214bb 100644
+--- a/ui/build.mjs
++++ b/ui/build.mjs
+@@ -249,6 +249,10 @@ Env-var overrides:
+   parser.add_argument('--title', {
+     help: 'Override the page title (useful for distinguishing multiple instances)',
+   });
++  parser.add_argument('--version-dir', {
++    help: 'Override the version string and dist/<version>/ directory name ' +
++          '(embedders deploy under their own release versions)',
++  });
+ 
+   // Load ~/.config/perfetto/ui-dev-server.env defaults, then map any
+   // PERFETTO_UI_* env vars to synthetic argv entries prepended before the
+@@ -287,8 +291,15 @@ Env-var overrides:
+   cfg.outUiTestArtifactsDir = ensureDir(pjoin(cfg.outDir, 'ui-test-artifacts'));
+   cfg.outExtDir = ensureDir(pjoin(cfg.outUiDir, 'chrome_extension'));
+   cfg.outDistRootDir = ensureDir(pjoin(cfg.outUiDir, 'dist'));
+-  const proc = exec('python3', [VERSION_SCRIPT, '--stdout'], {stdout: 'pipe'});
+-  cfg.version = proc.stdout.toString().trim();
++  if (args.version_dir) {
++    cfg.version = args.version_dir;
++    // Vite's virtual version module reads the same override, so VERSION in
++    // the bundle matches the directory it is served from.
++    process.env.PERFETTO_UI_VERSION_DIR = cfg.version;
++  } else {
++    const proc = exec('python3', [VERSION_SCRIPT, '--stdout'], {stdout: 'pipe'});
++    cfg.version = proc.stdout.toString().trim();
++  }
+   cfg.outDistDir = ensureDir(pjoin(cfg.outDistRootDir, cfg.version));
+   cfg.outTscDir = ensureDir(pjoin(cfg.outUiDir, 'tsc'));
+   cfg.outGenDir = ensureDir(pjoin(cfg.outUiDir, 'tsc/gen'));
+diff --git a/ui/vite.config.mjs b/ui/vite.config.mjs
+index 0bcf68ee90..b79bf2c371 100644
+--- a/ui/vite.config.mjs
++++ b/ui/vite.config.mjs
+@@ -172,7 +172,10 @@ export function pluginPerfettoVersion() {
+   const SCRIPT = path.join(ROOT_DIR, 'tools/write_version_header.py');
+   const generate = () => {
+     const out = execFileSync('python3', [SCRIPT, '--json'], {encoding: 'utf8'});
+-    const {version, sha1} = JSON.parse(out);
++    const {version: scmVersion, sha1} = JSON.parse(out);
++    // Embedders deploying under their own release versions pass
++    // --version-dir to build.mjs, which exports it here.
++    const version = process.env.PERFETTO_UI_VERSION_DIR || scmVersion;
+     return (
+       `export const VERSION = ${JSON.stringify(version)};\n` +
+       `export const SCM_REVISION = ${JSON.stringify(sha1)};\n`

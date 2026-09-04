@@ -229,7 +229,20 @@ def uprev(revision: str) -> None:
     setup()
 
 
-def build_ui(skip_deps: bool) -> None:
+UI_OUT = CHECKOUT / "out/buildprof-ui"
+UI_DIST = UI_OUT / "ui/dist"
+
+
+def buildprof_version() -> str:
+    """The crate version, which names the UI's deployed `v<version>/` directory."""
+    manifest = (ROOT / "Cargo.toml").read_text()
+    match = re.search(r'(?m)^version = "([^"]+)"$', manifest)
+    if match is None:
+        sys.exit("could not read the package version from Cargo.toml")
+    return match.group(1)
+
+
+def build_ui(skip_deps: bool, version_dir: str | None, no_wasm: bool) -> None:
     if patches_are_applied():
         print("==> Perfetto patches already applied; preserving checkout")
         install_overlays()
@@ -237,9 +250,42 @@ def build_ui(skip_deps: bool) -> None:
         setup()
     if not skip_deps:
         run("python3", "tools/install-build-deps", "--ui", cwd=CHECKOUT)
-    out_dir = CHECKOUT / "out/buildprof-ui"
-    run("ui/build", "--out", out_dir, cwd=CHECKOUT)
-    print(f"==> self-hostable UI: {out_dir / 'ui'}")
+    version_dir = version_dir or f"v{buildprof_version()}"
+    args: list[str | Path] = ["ui/build", "--out", UI_OUT, "--version-dir", version_dir]
+    if no_wasm:
+        args.append("--no-wasm")
+    run(*args, cwd=CHECKOUT)
+    print(f"==> self-hostable UI: {UI_DIST} (version directory {version_dir})")
+
+
+def package_ui(output_dir: Path | None) -> Path:
+    """Bundle the built UI as the release asset the deploy job assembles from.
+
+    The archive holds exactly what one release contributes to the site: the
+    root entry page and service worker, plus the versioned asset directory.
+    """
+    version_dir = f"v{buildprof_version()}"
+    if not (UI_DIST / version_dir / "index.html").is_file():
+        sys.exit(f"no UI build for {version_dir} in {UI_DIST}; run `tools/perfetto build-ui`")
+    output_dir = output_dir or UI_OUT
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output = output_dir / f"buildprof-ui-{version_dir}.tar.zst"
+    members = ["index.html", "service_worker.js", version_dir]
+    if (UI_DIST / "service_worker.js.map").is_file():
+        members.append("service_worker.js.map")
+    with open(output, "wb") as archive:
+        tar = subprocess.Popen(
+            ["tar", "-C", UI_DIST, "-cf", "-", *members], stdout=subprocess.PIPE
+        )
+        zstd = subprocess.run(
+            ["zstd", "-T0", "-19", "-q"], stdin=tar.stdout, stdout=archive, check=True
+        )
+        assert tar.stdout is not None
+        tar.stdout.close()
+        if tar.wait() != 0 or zstd.returncode != 0:
+            sys.exit("could not package the UI")
+    print(f"==> UI release asset: {output}")
+    return output
 
 
 def main() -> int:
@@ -253,6 +299,16 @@ def main() -> int:
     uprev_parser.add_argument("revision", nargs="?", default="latest")
     build_parser = sub.add_parser("build-ui", help="build the self-hostable UI")
     build_parser.add_argument("--skip-deps", action="store_true")
+    build_parser.add_argument(
+        "--version-dir", help="override the v<version> directory (default: Cargo.toml)"
+    )
+    build_parser.add_argument(
+        "--no-wasm", action="store_true", help="reuse already-built wasm modules"
+    )
+    package_parser = sub.add_parser(
+        "package-ui", help="archive the built UI as a release asset"
+    )
+    package_parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
 
     if args.command == "setup":
@@ -262,5 +318,7 @@ def main() -> int:
     elif args.command == "uprev":
         uprev(args.revision)
     elif args.command == "build-ui":
-        build_ui(args.skip_deps)
+        build_ui(args.skip_deps, args.version_dir, args.no_wasm)
+    elif args.command == "package-ui":
+        package_ui(args.output_dir)
     return 0

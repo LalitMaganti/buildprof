@@ -10,7 +10,7 @@ Parallelism counter is the overview that reads.
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/ui/src/core_plugins/dev.perfetto.Timeline/index.ts b/ui/src/core_plugins/dev.perfetto.Timeline/index.ts
-index 9b0b96b1ed..8ce24def77 100644
+index 9b0b96b1ed..d67d9b89a2 100644
 --- a/ui/src/core_plugins/dev.perfetto.Timeline/index.ts
 +++ b/ui/src/core_plugins/dev.perfetto.Timeline/index.ts
 @@ -45,7 +45,10 @@ export default class TimelinePlugin implements PerfettoPlugin {

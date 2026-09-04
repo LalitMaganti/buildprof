@@ -27,7 +27,7 @@ index 2dc9b8658c..fa95640419 100644
    // should not be enabled for this embedder.
    readonly analyticsId: string | undefined;
 diff --git a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
-index 5bc2cd13cb..64fd304875 100644
+index 13f797f5b3..40a84cf0c7 100644
 --- a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
 +++ b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
 @@ -156,7 +156,7 @@ export default class CoreCommands implements PerfettoPlugin {
