@@ -37,4 +37,4 @@ body:
     id: trace
     attributes:
       label: Trace
-      description: If the recording can be shared, attach the `.buildprof` file or a link to it. Recordings contain command lines and file paths, so review them first.
+      description: If you can, attach the `.buildprof` file or a link to it. Recordings contain command lines and file paths, so review them first.

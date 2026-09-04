@@ -154,7 +154,7 @@ export class BuildprofHomePage implements m.ClassComponent<HomePageAttrs> {
         m(
           'span',
           m('strong', 'Private by default. '),
-          'All data is recorded and processed on your machine. Nothing is uploaded without your explicit consent.',
+          'Recordings are processed entirely in your browser. Nothing is ever uploaded.',
         ),
       ),
       m(

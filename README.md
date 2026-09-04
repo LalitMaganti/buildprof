@@ -52,11 +52,9 @@ When the build finishes, the recording is saved as `output.buildprof` and
 opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
 Any build system works; see [Build systems](#build-systems).
 
-**Nothing is uploaded unless you ask.** buildprof.lalitm.com only delivers
-the UI itself. Your browser fetches the recording from localhost and processes
-it entirely in the page; no trace data leaves your machine. The one exception
-is the UI's Share button, which uploads the recording to create a link, and
-only after you confirm.
+**Nothing is ever uploaded.** buildprof.lalitm.com only delivers the UI
+itself. Your browser fetches the recording from localhost and processes it
+entirely in the page; no trace data leaves your machine.
 
 ## Install
 
@@ -91,7 +89,7 @@ buildprof open clean-build.buildprof
 ```
 
 Recordings contain command lines and filesystem paths. Review them before
-sharing them.
+sending them to anyone.
 
 ### Builds on a remote machine
 

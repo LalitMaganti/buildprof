@@ -57,7 +57,55 @@ import { showBuildprofHelp } from "../../core/embedder/buildprof_help";
 import { Intent } from "../../widgets/common";
 import { VERSION } from "../../virtual/version";
 
-const SHARE_SERVICE = "https://buildprofusercontent.lalitm.com/v1/traces";
+// Sharing is switched off until there is a sustainable way to host uploads;
+// the menu item explains that and points at the tracking issue.
+const SHARING_ISSUE_URL = "https://github.com/LalitMaganti/buildprof/issues/1";
+
+/** Save the open recording as a .buildprof file, named after its source. */
+async function downloadTrace(trace: Trace): Promise<void> {
+  const blob = await trace.getTraceFile();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = downloadName(trace);
+  anchor.click();
+  // Give the browser time to start the download before dropping the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function downloadName(trace: Trace): string {
+  const title = trace.traceInfo.traceTitle.replace(/\s*\([^)]*\)\s*$/, "");
+  const base = title.split("/").pop()?.split("?")[0] ?? "";
+  if (base === "") return "recording.buildprof";
+  return base.endsWith(".buildprof") ? base : `${base}.buildprof`;
+}
+
+function explainSharing(): void {
+  void showModal({
+    key: "buildprof-sharing",
+    title: "Sharing is not available yet",
+    icon: "share",
+    content: m(
+      "div",
+      m(
+        "p",
+        "Sharing a recording straight from the UI is planned. It needs a way to host uploads that stays sustainable, and that is still being worked out.",
+      ),
+      m(
+        "p",
+        "Follow the issue to hear when it lands, and comment if you would use it and how; that helps decide what to build.",
+      ),
+    ),
+    buttons: [
+      {
+        text: "Open the issue",
+        primary: true,
+        action: () => window.open(SHARING_ISSUE_URL, "_blank"),
+      },
+      { text: "Close" },
+    ],
+  });
+}
 
 function chooseAndOpenTrace(app: App): void {
   const input = document.createElement("input");
@@ -155,139 +203,6 @@ async function registerVersionStatus(trace: Trace): Promise<void> {
   });
 }
 
-function showError(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
-  void showModal({
-    title: "Could not share trace",
-    icon: "error",
-    content: m("p", message),
-    buttons: [{ text: "Close", primary: true }],
-  });
-}
-
-async function uploadTrace(trace: Trace): Promise<void> {
-  void showModal({
-    key: "buildprof-uploading",
-    title: "Uploading trace",
-    icon: "upload",
-    content: m(
-      "p",
-      "Sending the trace through the Buildprof sharing service…",
-    ),
-  });
-
-  try {
-    const traceFile = await trace.getTraceFile();
-    const response = await fetch(SHARE_SERVICE, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: traceFile,
-    });
-    if (!response.ok) {
-      throw new Error(`The sharing service returned HTTP ${response.status}`);
-    }
-
-    const url = (await response.text()).trim();
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" || parsed.hostname !== "0x0.st") {
-      throw new Error("0x0.st returned an invalid sharing URL");
-    }
-
-    const token = response.headers.get("X-Token");
-    const deleteCommand =
-      token === null
-        ? undefined
-        : `curl -X POST -F 'token=${token}' -F 'delete=' '${url}'`;
-
-    void showModal({
-      title: "Trace uploaded",
-      icon: "check_circle",
-      content: m(
-        "div",
-        m("p", "Anyone with this URL can download the trace:"),
-        m("p", m("code", url)),
-        token === null
-          ? m(
-              "p",
-              "0x0.st did not return a management token, so Buildprof cannot provide a deletion command for this upload.",
-            )
-          : m(
-              "div",
-              m(
-                "p",
-                "Keep this deletion command private. It contains the management token required to remove the file:",
-              ),
-              m("p", m("code", deleteCommand)),
-            ),
-      ),
-      buttons: [
-        {
-          text:
-            deleteCommand === undefined
-              ? "Copy sharing URL"
-              : "Copy URL and deletion command",
-          primary: true,
-          action: () =>
-            void navigator.clipboard.writeText(
-              deleteCommand === undefined
-                ? url
-                : `Sharing URL: ${url}\nDeletion command: ${deleteCommand}`,
-            ),
-        },
-        { text: "Close" },
-      ],
-    });
-  } catch (error) {
-    showError(error);
-  }
-}
-
-function confirmShare(trace: Trace): void {
-  void showModal({
-    title: "Share trace?",
-    icon: "share",
-    content: m(
-      "div",
-      m("p", "If you continue:"),
-      m(
-        "ul",
-        m(
-          "li",
-          "Your trace is relayed by the Buildprof sharing service to the third-party storage service 0x0.st.",
-        ),
-        m("li", "The Buildprof sharing service does not retain a copy."),
-        m(
-          "li",
-          "Anyone with the generated, hard-to-guess URL can download the file.",
-        ),
-        m(
-          "li",
-          "0x0.st retains files according to its policy, normally from 30 days up to one year.",
-        ),
-        m(
-          "li",
-          "After upload, you will receive a private deletion command containing the 0x0.st management token.",
-        ),
-      ),
-      m(
-        "p",
-        m(
-          "strong",
-          "Build traces can contain command names, source paths, environment details, and other sensitive information.",
-        ),
-      ),
-    ),
-    buttons: [
-      { text: "Cancel" },
-      {
-        text: "Upload trace",
-        primary: true,
-        action: () => void uploadTrace(trace),
-      },
-    ],
-  });
-}
-
 export default class BuildprofPlugin implements PerfettoPlugin {
   static readonly id = "dev.perfetto.Buildprof";
 
@@ -347,13 +262,26 @@ export default class BuildprofPlugin implements PerfettoPlugin {
     if (trace.traceInfo.downloadable) {
       trace.sidebar.addMenuItem({
         section: "current_trace",
-        sortOrder: 20,
+        sortOrder: 10,
         topbar: true,
-        text: "Share trace",
-        icon: "share",
-        action: () => confirmShare(trace),
+        topbarPosition: "right",
+        text: "Download trace",
+        icon: "download",
+        cssClass: "pf-topbar-icon-only",
+        tooltip: "Download trace",
+        action: () => downloadTrace(trace),
       });
     }
+
+    trace.sidebar.addMenuItem({
+      section: "current_trace",
+      sortOrder: 20,
+      topbar: true,
+      text: "Share trace",
+      icon: "share",
+      tooltip: "Not available yet; follow or comment on the issue",
+      action: explainSharing,
+    });
 
     edgesReady = undefined;
     if ((await materialise(trace)) === 0) return;
