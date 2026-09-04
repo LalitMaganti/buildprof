@@ -1,0 +1,25 @@
+# Entry for the aqua registry: pkgs/github_release/github.com/LalitMaganti/buildprof/registry.yaml
+# mise prefers aqua-backed tools, and aqua verifies the release checksums.
+packages:
+  - type: github_release
+    repo_owner: LalitMaganti
+    repo_name: buildprof
+    description: Profiler for software builds that records every process and file access
+    asset: buildprof-{{.Arch}}-{{.OS}}.tar.xz
+    format: tar.xz
+    files:
+      - name: buildprof
+        src: buildprof-{{.Arch}}-{{.OS}}/buildprof
+    replacements:
+      amd64: x86_64
+      arm64: aarch64
+      darwin: apple-darwin
+      linux: unknown-linux-gnu
+    supported_envs:
+      - linux
+      - darwin
+    checksum:
+      type: github_release
+      asset: sha256.sum
+      algorithm: sha256
+    version_constraint: 'true'

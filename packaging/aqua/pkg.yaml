@@ -1,0 +1,3 @@
+# pkgs/github_release/github.com/LalitMaganti/buildprof/pkg.yaml
+packages:
+  - name: LalitMaganti/buildprof@v0.2.0

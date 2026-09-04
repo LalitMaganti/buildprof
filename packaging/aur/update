@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Point the PKGBUILD at a release and fill in its checksums from sha256.sum.
+# Usage: ./update 0.2.0   (then makepkg --printsrcinfo > .SRCINFO and push)
+set -euo pipefail
+version=${1:?usage: $0 <version>}
+cd "$(dirname "$0")"
+sums=$(curl -fsSL "https://github.com/LalitMaganti/buildprof/releases/download/v${version}/sha256.sum")
+x86=$(echo "$sums" | awk '/buildprof-x86_64-unknown-linux-gnu.tar.xz$/ {print $1}')
+arm=$(echo "$sums" | awk '/buildprof-aarch64-unknown-linux-gnu.tar.xz$/ {print $1}')
+[[ -n "$x86" && -n "$arm" ]] || { echo "checksums not found in sha256.sum" >&2; exit 1; }
+sed -i \
+  -e "s/^pkgver=.*/pkgver=${version}/" \
+  -e "s/^pkgrel=.*/pkgrel=1/" \
+  -e "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${x86}')/" \
+  -e "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${arm}')/" \
+  PKGBUILD
+echo "PKGBUILD updated to ${version}; run: makepkg --printsrcinfo > .SRCINFO"

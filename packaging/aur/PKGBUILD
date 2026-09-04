@@ -1,0 +1,24 @@
+# Maintainer: Lalit Maganti <lalitmaganti@gmail.com>
+# Prebuilt binaries from the GitHub release; `./update <version>` refreshes
+# pkgver and the checksums from the release's sha256.sum.
+pkgname=buildprof-bin
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Profiler for software builds: records every process and file access and shows the build on an interactive timeline"
+arch=('x86_64' 'aarch64')
+url="https://buildprof.lalitm.com"
+license=('Apache-2.0')
+provides=('buildprof')
+conflicts=('buildprof')
+_release="https://github.com/LalitMaganti/buildprof/releases/download/v${pkgver}"
+source_x86_64=("${_release}/buildprof-x86_64-unknown-linux-gnu.tar.xz")
+source_aarch64=("${_release}/buildprof-aarch64-unknown-linux-gnu.tar.xz")
+sha256sums_x86_64=('UPDATE_ME')
+sha256sums_aarch64=('UPDATE_ME')
+
+package() {
+  cd "buildprof-${CARCH}-unknown-linux-gnu"
+  install -Dm755 buildprof "${pkgdir}/usr/bin/buildprof"
+  install -Dm644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
