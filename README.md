@@ -13,8 +13,11 @@ generators, file access, and arbitrary tools launched along the way.
 On the Linux machine that runs the build:
 
 ```bash
-curl -fsSL https://buildprof.lalitm.com/install.sh | sh   # or Homebrew, mise, packages: see Install below
-buildprof -- make -j8                                      # your build command after --
+# Or Homebrew, mise, packages: see Install below.
+curl -fsSL https://buildprof.lalitm.com/install.sh | sh
+
+# Your build command after --.
+buildprof -- make -j8
 ```
 
 When the build finishes, the recording is saved as `output.buildprof` and
