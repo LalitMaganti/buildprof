@@ -25,3 +25,6 @@ third_party/src/
 # Assembled site tree and UI release asset produced by the deploy workflow.
 /site/
 /ui-asset/
+
+# ccache directory the CI composite action places inside the checkout.
+/.ccache/

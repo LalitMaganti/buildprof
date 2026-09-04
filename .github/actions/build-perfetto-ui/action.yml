@@ -30,6 +30,20 @@ runs:
         restore-keys: |
           perfetto-buildtools-${{ runner.os }}-
 
+    # Ubuntu's ccache (4.9) predates support for Emscripten's --em-config
+    # flag, which Perfetto passes on every wasm compile; it read the config
+    # path as a second source file and refused to cache 80% of calls. 4.10+
+    # understands it. /usr/local/bin wins over the apt package on PATH.
+    - name: Install a ccache that understands emcc
+      shell: bash
+      run: |
+        version=4.14
+        arch=$(uname -m)
+        curl -fsSL "https://github.com/ccache/ccache/releases/download/v${version}/ccache-${version}-linux-${arch}-glibc.tar.xz" \
+          | tar -xJ -C "$RUNNER_TEMP" --strip-components=1 "ccache-${version}-linux-${arch}-glibc/ccache"
+        sudo install -m 755 "$RUNNER_TEMP/ccache" /usr/local/bin/ccache
+        ccache --version | head -1
+
     - name: Set up ccache
       uses: hendrikmuhs/ccache-action@v1.2
       with:
@@ -42,4 +56,4 @@ runs:
 
     - name: Report ccache statistics
       shell: bash
-      run: ccache --show-stats
+      run: ccache --show-stats -v
