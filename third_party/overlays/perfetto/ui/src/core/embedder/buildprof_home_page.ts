@@ -6,9 +6,34 @@ import m from 'mithril';
 import type {HomePageAttrs} from './embedder';
 import {BUILDPROF_HERO} from './buildprof_brand';
 import type {App} from '../../public/app';
+import {VERSION} from '../../virtual/version';
 
-const INSTALL_COMMAND = 'cargo install buildprof --locked';
-const RECORD_COMMAND = 'buildprof -o build.buildprof -- make -j8';
+const RELEASES_URL = 'https://github.com/LalitMaganti/buildprof/releases';
+const INSTALL_COMMAND =
+  "curl --proto '=https' --tlsv1.2 -LsSf " +
+  `${RELEASES_URL}/latest/download/buildprof-installer.sh | sh`;
+const OTHER_INSTALLS = [
+  'brew install lalitmaganti/tap/buildprof',
+  'mise use -g buildprof',
+  'cargo install buildprof --locked',
+];
+const RECORD_COMMAND = 'buildprof -- make -j8';
+
+// Recordings served from the production site next to the UI; keep in step
+// with EXAMPLES in src/args.rs. Absolute so self-hosted UIs still find them.
+const EXAMPLES_URL = 'https://buildprof.lalitm.com/examples';
+interface Example {
+  readonly name: string;
+  readonly file: string;
+  readonly description: string;
+}
+const EXAMPLES: ReadonlyArray<Example> = [
+  {
+    name: 'ripgrep',
+    file: 'ripgrep-release-clean.buildprof',
+    description: 'A clean `cargo build --release` of ripgrep',
+  },
+];
 
 function chooseAndOpenTrace(app: App): void {
   const input = document.createElement('input');
@@ -19,6 +44,10 @@ function chooseAndOpenTrace(app: App): void {
     if (file !== undefined) void app.openTraceFromFile(file);
   };
   input.click();
+}
+
+function openExample(app: App, example: Example): void {
+  void app.openTraceFromUrl(`${EXAMPLES_URL}/${example.file}`);
 }
 
 function commandBlock(command: string) {
@@ -46,6 +75,14 @@ export class BuildprofHomePage implements m.ClassComponent<HomePageAttrs> {
           m('h2', 'Install Buildprof'),
           m('p', 'Install the recorder on your Linux build machine.'),
           commandBlock(INSTALL_COMMAND),
+          m(
+            'p.bt-home__alternatives',
+            'Or: ',
+            ...OTHER_INSTALLS.flatMap((command, index) => [
+              index > 0 ? ' · ' : '',
+              m('code', command),
+            ]),
+          ),
         ),
         m(
           'article.bt-home__step',
@@ -53,7 +90,7 @@ export class BuildprofHomePage implements m.ClassComponent<HomePageAttrs> {
           m('h2', 'Record a build'),
           m(
             'p',
-            'Put Buildprof before any build command. When recording finishes, open the generated trace in this UI.',
+            'Put Buildprof before any build command. When recording finishes, the trace opens in this UI.',
           ),
           commandBlock(RECORD_COMMAND),
         ),
@@ -69,6 +106,24 @@ export class BuildprofHomePage implements m.ClassComponent<HomePageAttrs> {
             'button.bt-home__open',
             {type: 'button', onclick: () => chooseAndOpenTrace(attrs.app)},
             'Open a recording',
+          ),
+        ),
+      ),
+      m(
+        'section.bt-home__examples',
+        m('h2', 'Or explore an example'),
+        m(
+          'div.bt-home__example-list',
+          EXAMPLES.map((example) =>
+            m(
+              'button.bt-home__example',
+              {
+                type: 'button',
+                onclick: () => openExample(attrs.app, example),
+              },
+              m('strong', example.name),
+              m('span', example.description),
+            ),
           ),
         ),
       ),
@@ -96,6 +151,14 @@ export class BuildprofHomePage implements m.ClassComponent<HomePageAttrs> {
           'span',
           m('strong', 'Private by default. '),
           'All data is recorded and processed on your machine. Nothing is uploaded without your explicit consent.',
+        ),
+      ),
+      m(
+        'footer.bt-home__version',
+        m(
+          'a',
+          {href: RELEASES_URL, target: '_blank', rel: 'noopener'},
+          `Buildprof UI ${VERSION}`,
         ),
       ),
     );

@@ -54,6 +54,8 @@ import { SQLDataSource } from "../../components/widgets/datagrid/sql_data_source
 import type { ColumnSchema } from "../../components/widgets/datagrid/datagrid_schema";
 import type { Pivot } from "../../components/widgets/datagrid/model";
 import { showBuildprofHelp } from "../../core/embedder/buildprof_help";
+import { Intent } from "../../widgets/common";
+import { VERSION } from "../../virtual/version";
 
 const SHARE_SERVICE = "https://buildprofusercontent.lalitm.com/v1/traces";
 
@@ -94,6 +96,63 @@ async function isBuildprof(trace: Trace): Promise<boolean> {
       and extract_arg(arg_set_id, 'debug.cmd') is not null
   `);
   return result.firstRow({ cnt: NUM }).cnt > 0;
+}
+
+/** The `buildprof.version` a trace was recorded with, if it carries one. */
+async function recorderVersion(trace: Trace): Promise<string | undefined> {
+  const result = await trace.engine.query(`
+    select str_value
+    from metadata
+    where name = 'trace_attribute.buildprof.version'
+  `);
+  const it = result.iter({ str_value: STR_NULL });
+  return it.valid() && it.str_value !== null ? it.str_value : undefined;
+}
+
+/** The deployed UI matching a recorder version, carrying the trace URL along. */
+function matchingUiUrl(trace: Trace, recorder: string): string {
+  const base = `${location.origin}/v${recorder}/`;
+  const traceUrl = trace.traceInfo.traceUrl;
+  return traceUrl ? `${base}#!/?url=${encodeURIComponent(traceUrl)}` : base;
+}
+
+/**
+ * Show which recorder wrote the trace and which UI is rendering it. Every
+ * released UI is deployed under /v<version>/, so a mismatch is one click from
+ * the exact pairing; recordings from before the attribute existed get a hint.
+ */
+async function registerVersionStatus(trace: Trace): Promise<void> {
+  const recorder = await recorderVersion(trace);
+  const ui = VERSION.replace(/^v/, "");
+  const matches = recorder === ui;
+  const label =
+    recorder === undefined
+      ? `Buildprof ${ui} · trace predates 0.2.0`
+      : matches
+        ? `Buildprof ${ui}`
+        : `Recorded with Buildprof ${recorder} · UI ${ui}`;
+  const link = recorder !== undefined && !matches ? matchingUiUrl(trace, recorder) : undefined;
+  trace.statusbar.registerItem({
+    renderItem: () => ({
+      label,
+      icon: matches ? "verified" : "info",
+      intent: matches ? undefined : Intent.Warning,
+      onclick: link === undefined ? undefined : () => window.open(link, "_blank"),
+    }),
+    popupContent: () =>
+      link === undefined
+        ? m(
+            "div",
+            recorder === undefined
+              ? "This recording carries no version attribute; it was made by a Buildprof older than 0.2.0."
+              : "This UI matches the recorder that wrote the trace.",
+          )
+        : m(
+            "div",
+            `Open this trace in the Buildprof ${recorder} UI for the exact match: `,
+            m(Anchor, { href: link, target: "_blank" }, link),
+          ),
+  });
 }
 
 function showError(error: unknown): void {
@@ -282,6 +341,8 @@ export default class BuildprofPlugin implements PerfettoPlugin {
       rejectNonBuildprof(trace);
       return;
     }
+
+    await registerVersionStatus(trace);
 
     if (trace.traceInfo.downloadable) {
       trace.sidebar.addMenuItem({
