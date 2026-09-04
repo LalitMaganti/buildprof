@@ -50,8 +50,11 @@ buildprof -- make -j8                                      # your build command 
 
 When the build finishes, the recording is saved as `output.buildprof` and
 opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
-The trace is served from localhost and never uploaded. Any build system
-works; see [Build systems](#build-systems).
+Any build system works; see [Build systems](#build-systems).
+
+**Nothing is ever uploaded.** buildprof.lalitm.com only delivers the UI
+itself. Your browser fetches the recording from localhost and processes it
+entirely in the page; no trace data leaves your machine.
 
 ## Install
 
