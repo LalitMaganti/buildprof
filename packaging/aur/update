@@ -14,4 +14,16 @@ sed -i \
   -e "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${x86}')/" \
   -e "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${arm}')/" \
   PKGBUILD
-echo "PKGBUILD updated to ${version}; run: makepkg --printsrcinfo > .SRCINFO"
+if command -v makepkg >/dev/null; then
+  makepkg --printsrcinfo > .SRCINFO
+else
+  # Keep .SRCINFO in step by hand where makepkg is unavailable (macOS).
+  sed -i \
+    -e "s/^\tpkgver = .*/\tpkgver = ${version}/" \
+    -e "s/^\tpkgrel = .*/\tpkgrel = 1/" \
+    -e "s#/download/v[0-9.]*/#/download/v${version}/#" \
+    -e "s/^\tsha256sums_x86_64 = .*/\tsha256sums_x86_64 = ${x86}/" \
+    -e "s/^\tsha256sums_aarch64 = .*/\tsha256sums_aarch64 = ${arm}/" \
+    .SRCINFO
+fi
+echo "PKGBUILD and .SRCINFO updated to ${version}"
