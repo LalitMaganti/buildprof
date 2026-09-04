@@ -1,3 +1,0 @@
-# Entry for registry.toml in https://github.com/jdx/mise. Submit once the
-# aqua registry entry has merged so the preferred backend resolves.
-buildprof = { backends = ["aqua:LalitMaganti/buildprof", "github:LalitMaganti/buildprof"], description = "Profiler for software builds that records every process and file access", test = ["buildprof --version", "buildprof {{version}}"] }

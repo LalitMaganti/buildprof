@@ -10,7 +10,7 @@ someone has to submit elsewhere.
 | `aur/` | AUR package `buildprof-bin` | every release, via `aur/update` |
 | `nix/` | `pkgs/by-name/bu/buildprof/package.nix` in nixpkgs | first release, then version bumps |
 | `aqua/` | `pkgs/github_release/github.com/LalitMaganti/buildprof/` in the aqua registry | first release only |
-| `mise/` | `registry.toml` in the mise repository | first release only |
+| `mise/` | `registry/buildprof.toml` in the mise repository | first release only |
 
 mise users can install without any registry entry:
 
