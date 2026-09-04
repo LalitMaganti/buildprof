@@ -7,6 +7,16 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-04
+
+### Fixed
+
+- The static musl builds compile again; the ptrace request type differs
+  between glibc and musl.
+- Releases are created as drafts titled `Buildprof <version>` for review.
+  Publishing one triggers the UI deploy, the crates.io publish, and the
+  Linux packages, which a release published by automation never did.
+
 ## [0.2.0] - 2026-09-04
 
 ### Added

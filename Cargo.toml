@@ -1,6 +1,6 @@
 [package]
 name = "buildprof"
-version = "0.2.0"
+version = "0.2.1"
 description = "Record Linux build processes and file access as a Perfetto trace"
 license = "Apache-2.0"
 readme = "README.md"
