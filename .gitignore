@@ -15,9 +15,12 @@ third_party/src/
 /docs/
 !/docs/
 /docs/*
+!/docs/investigating-builds.md
+!/docs/ripgrep-tutorial.md
 !/docs/assets/
 /docs/assets/*
 !/docs/assets/ripgrep-release-clean.png
+!/docs/assets/ripgrep-tour-*.png
 
 # Local article capture tooling and intermediate outputs.
 /tools/capture_blog_*.mjs

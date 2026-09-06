@@ -125,6 +125,9 @@ forever. Alternatively, copy the recording to any machine with Buildprof
 installed and run `buildprof open` there; the macOS build exists for exactly
 that.
 
+**Investigating a slow build?** See the [investigation guide](docs/investigating-builds.md)
+to find expensive commands, follow their inputs, and inspect compiler phases.
+
 ## Build systems
 
 Buildprof follows the process tree, so it does not need to understand the
