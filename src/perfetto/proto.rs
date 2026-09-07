@@ -53,14 +53,16 @@ mod track_descriptor {
 }
 
 mod track_event {
+    pub(super) const CATEGORY_IIDS: u32 = 3;
     pub(super) const DEBUG_ANNOTATIONS: u32 = 4;
     pub(super) const TYPE: u32 = 9;
+    pub(super) const NAME_IID: u32 = 10;
     pub(super) const TRACK_UUID: u32 = 11;
-    pub(super) const CATEGORIES: u32 = 22;
-    pub(super) const NAME: u32 = 23;
 }
 
 mod interned_data {
+    pub(super) const EVENT_CATEGORIES: u32 = 1;
+    pub(super) const EVENT_NAMES: u32 = 2;
     pub(super) const DEBUG_ANNOTATION_NAMES: u32 = 3;
     pub(super) const DEBUG_ANNOTATION_STRING_VALUES: u32 = 29;
 }
@@ -217,19 +219,33 @@ impl Packet<'_, '_> {
     ) -> io::Result<()> {
         self.encoder.message(packet::INTERNED_DATA, &mut |data| {
             if let Some((iid, name)) = name {
-                data.message(interned_data::DEBUG_ANNOTATION_NAMES, &mut |entry| {
-                    entry.uint(interned_string::IID, iid)?;
-                    entry.string(interned_string::VALUE, name)
-                })?;
+                interned_string(data, interned_data::DEBUG_ANNOTATION_NAMES, iid, name)?;
             }
             if let Some((iid, value)) = value {
-                data.message(
+                interned_string(
+                    data,
                     interned_data::DEBUG_ANNOTATION_STRING_VALUES,
-                    &mut |entry| {
-                        entry.uint(interned_string::IID, iid)?;
-                        entry.string(interned_string::VALUE, value)
-                    },
+                    iid,
+                    value,
                 )?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Declares the interned ids for an event category and/or name, which
+    /// later events on the sequence refer to by id.
+    pub(super) fn intern_event_strings(
+        &mut self,
+        category: Option<(u64, &str)>,
+        name: Option<(u64, &str)>,
+    ) -> io::Result<()> {
+        self.encoder.message(packet::INTERNED_DATA, &mut |data| {
+            if let Some((iid, category)) = category {
+                interned_string(data, interned_data::EVENT_CATEGORIES, iid, category)?;
+            }
+            if let Some((iid, name)) = name {
+                interned_string(data, interned_data::EVENT_NAMES, iid, name)?;
             }
             Ok(())
         })
@@ -264,19 +280,19 @@ impl Packet<'_, '_> {
         &mut self,
         event_type: u32,
         track_uuid: u64,
-        category: Option<&str>,
-        name: Option<&str>,
+        category_iid: Option<u64>,
+        name_iid: Option<u64>,
         annotation: Option<(u64, u64)>,
         args: &mut dyn FnMut(&mut BuildprofEvent<'_, '_>) -> io::Result<()>,
     ) -> io::Result<()> {
         self.encoder.message(packet::TRACK_EVENT, &mut |event| {
             event.uint(track_event::TYPE, u64::from(event_type))?;
             event.uint(track_event::TRACK_UUID, track_uuid)?;
-            if let Some(category) = category {
-                event.string(track_event::CATEGORIES, category)?;
+            if let Some(category_iid) = category_iid {
+                event.uint(track_event::CATEGORY_IIDS, category_iid)?;
             }
-            if let Some(name) = name {
-                event.string(track_event::NAME, name)?;
+            if let Some(name_iid) = name_iid {
+                event.uint(track_event::NAME_IID, name_iid)?;
             }
             if let Some((name_iid, value_iid)) = annotation {
                 event.message(track_event::DEBUG_ANNOTATIONS, &mut |annotation| {
@@ -317,6 +333,13 @@ impl Packet<'_, '_> {
                 })
             })
     }
+}
+
+fn interned_string(data: &mut Encoder<'_>, field: u32, iid: u64, value: &str) -> io::Result<()> {
+    data.message(field, &mut |entry| {
+        entry.uint(interned_string::IID, iid)?;
+        entry.string(interned_string::VALUE, value)
+    })
 }
 
 pub(super) struct BuildprofEvent<'encoder, 'output> {

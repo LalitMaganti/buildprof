@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Event names and categories are written once per trace and referenced by id
+  from each event, instead of being repeated as strings on every event. Traces
+  are smaller and load faster; nothing changes in what the UI shows.
+
 ## [0.2.2] - 2026-09-04
 
 ### Changed

@@ -43,6 +43,8 @@ const MINIMUM_SLICE_DURATION_NS: u64 = 1;
 /// bytes are written.
 pub struct Writer {
     output: Compressor<'static, BufWriter<File>>,
+    event_categories: HashMap<String, u64>,
+    event_names: HashMap<String, u64>,
     annotation_names: HashMap<String, u64>,
     annotation_values: HashMap<String, u64>,
 }
@@ -53,6 +55,8 @@ impl Writer {
         let buffered = BufWriter::with_capacity(OUTPUT_BUFFER_BYTES, file);
         let mut writer = Self {
             output: Compressor::new(buffered, COMPRESSION_LEVEL)?,
+            event_categories: HashMap::new(),
+            event_names: HashMap::new(),
             annotation_names: HashMap::new(),
             annotation_values: HashMap::new(),
         };
@@ -84,9 +88,8 @@ impl Writer {
     }
 
     pub fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()> {
-        self.with_encoder(|trace| {
-            write_event(
-                trace,
+        {
+            self.write_event(
                 segment.start_ns,
                 proto::TYPE_SLICE_BEGIN,
                 process_track_uuid(process.pid),
@@ -110,8 +113,7 @@ impl Writer {
             let end_ns = segment
                 .end_ns
                 .max(segment.start_ns.saturating_add(MINIMUM_SLICE_DURATION_NS));
-            write_event(
-                trace,
+            self.write_event(
                 end_ns,
                 proto::TYPE_SLICE_END,
                 process_track_uuid(process.pid),
@@ -120,13 +122,12 @@ impl Writer {
                 None,
                 &mut |_| Ok(()),
             )
-        })
+        }
     }
 
     pub fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()> {
-        self.with_encoder(|trace| {
-            write_event(
-                trace,
+        {
+            self.write_event(
                 open.timestamp_ns,
                 proto::TYPE_INSTANT,
                 file_track_uuid(pid),
@@ -140,13 +141,12 @@ impl Writer {
                     args.fd(open.fd)
                 },
             )
-        })
+        }
     }
 
     pub fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()> {
-        self.with_encoder(|trace| {
-            write_event(
-                trace,
+        {
+            self.write_event(
                 rename.timestamp_ns,
                 proto::TYPE_INSTANT,
                 file_track_uuid(pid),
@@ -159,7 +159,7 @@ impl Writer {
                     args.owner_pid(pid)
                 },
             )
-        })
+        }
     }
 
     pub fn compiler_track(&mut self, pid: i32, thread_id: u32, backend: &str) -> io::Result<()> {
@@ -193,9 +193,8 @@ impl Writer {
         let annotation = detail
             .map(|detail| self.intern_debug_annotation("detail", detail))
             .transpose()?;
-        self.with_encoder(|trace| {
-            write_event(
-                trace,
+        {
+            self.write_event(
                 start_ns,
                 proto::TYPE_SLICE_BEGIN,
                 track_uuid,
@@ -208,8 +207,7 @@ impl Writer {
                     args.compiler_category(event_category)
                 },
             )?;
-            write_event(
-                trace,
+            self.write_event(
                 start_ns.saturating_add(duration_ns),
                 proto::TYPE_SLICE_END,
                 track_uuid,
@@ -218,7 +216,7 @@ impl Writer {
                 None,
                 &mut |_| Ok(()),
             )
-        })
+        }
     }
 
     pub fn finish(self) -> io::Result<()> {
@@ -273,25 +271,54 @@ impl Writer {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn write_event(
-    trace: &mut proto::Trace<'_, '_>,
-    timestamp_ns: u64,
-    event_type: u32,
-    track_uuid: u64,
-    category: Option<&str>,
-    name: Option<&str>,
-    annotation: Option<(u64, u64)>,
-    args: &mut dyn FnMut(&mut proto::BuildprofEvent<'_, '_>) -> io::Result<()>,
-) -> io::Result<()> {
-    trace.packet(&mut |packet| {
-        packet.timestamp(timestamp_ns)?;
-        packet.sequence()?;
-        if annotation.is_some() {
-            packet.sequence_needs_incremental_state()?;
+impl Writer {
+    /// Writes one track event. Categories and names are interned on first
+    /// use, so the trace carries them once and every event refers to them by
+    /// id; the reader then resolves them with a table lookup instead of
+    /// hashing the string for every event.
+    #[allow(clippy::too_many_arguments)]
+    fn write_event(
+        &mut self,
+        timestamp_ns: u64,
+        event_type: u32,
+        track_uuid: u64,
+        category: Option<&str>,
+        name: Option<&str>,
+        annotation: Option<(u64, u64)>,
+        args: &mut dyn FnMut(&mut proto::BuildprofEvent<'_, '_>) -> io::Result<()>,
+    ) -> io::Result<()> {
+        let category_iid = category.map(|c| intern(&mut self.event_categories, c));
+        let name_iid = name.map(|n| intern(&mut self.event_names, n));
+        let new_category = category_iid.filter(|(_, new)| *new).map(|(iid, _)| iid);
+        let new_name = name_iid.filter(|(_, new)| *new).map(|(iid, _)| iid);
+        if new_category.is_some() || new_name.is_some() {
+            self.with_encoder(|trace| {
+                trace.packet(&mut |packet| {
+                    packet.sequence()?;
+                    packet.sequence_needs_incremental_state()?;
+                    packet.intern_event_strings(
+                        new_category.map(|iid| (iid, category.unwrap_or_default())),
+                        new_name.map(|iid| (iid, name.unwrap_or_default())),
+                    )
+                })
+            })?;
         }
-        packet.track_event(event_type, track_uuid, category, name, annotation, args)
-    })
+        self.with_encoder(|trace| {
+            trace.packet(&mut |packet| {
+                packet.timestamp(timestamp_ns)?;
+                packet.sequence()?;
+                packet.sequence_needs_incremental_state()?;
+                packet.track_event(
+                    event_type,
+                    track_uuid,
+                    category_iid.map(|(iid, _)| iid),
+                    name_iid.map(|(iid, _)| iid),
+                    annotation,
+                    args,
+                )
+            })
+        })
+    }
 }
 
 fn intern(table: &mut HashMap<String, u64>, value: &str) -> (u64, bool) {
