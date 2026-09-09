@@ -211,6 +211,24 @@ async function registerVersionStatus(trace: Trace): Promise<void> {
   });
 }
 
+/** Make a deliberately omitted collection layer visible even before selection. */
+async function registerCollectionStatus(trace: Trace): Promise<void> {
+  const result = await trace.engine.query(`
+    select count(*) as disabled
+    from metadata
+    where name = 'trace_attribute.buildprof.file_events' and int_value = 0
+  `);
+  if (result.firstRow({ disabled: NUM }).disabled === 0) return;
+  trace.statusbar.registerItem({
+    renderItem: () => ({ label: "File events not recorded", icon: "info" }),
+    popupContent: () =>
+      m(
+        "div",
+        "This trace was recorded with file collection disabled. Process timing is available, but file lists and dependency links are not. Record again without --no-file-events to include them.",
+      ),
+  });
+}
+
 export default class BuildprofPlugin implements PerfettoPlugin {
   static readonly id = "dev.perfetto.Buildprof";
 
@@ -266,6 +284,7 @@ export default class BuildprofPlugin implements PerfettoPlugin {
     }
 
     await registerVersionStatus(trace);
+    await registerCollectionStatus(trace);
 
     trace.sidebar.addMenuItem({
       section: "current_trace",
@@ -2658,46 +2677,54 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
         ),
         m(
           GridLayoutColumn,
-          this.fileEvents &&
-            m(
-              Section,
-              {
-                title: m(
-                  "div",
-                  {
-                    style: {
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    },
+          m(
+            Section,
+            {
+              title: m(
+                "div",
+                {
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
                   },
-                  m("h1", "Dependencies"),
-                  m(Switch, {
-                    label: "Show on timeline",
-                    checked: this.dependencyArrows.isEnabled(),
-                    onchange: (event: Event) => {
-                      const input = event.target as HTMLInputElement;
-                      this.dependencyArrows.setEnabled(input.checked);
-                    },
-                  }),
-                ),
-              },
-              m(
-                Tree,
-                this.renderDeps(
-                  "Produced by",
-                  this.producers,
-                  this.producerCount,
-                  () => this.openDepsTab("producers"),
-                ),
-                this.renderDeps(
-                  "Consumed by",
-                  this.consumers,
-                  this.consumerCount,
-                  () => this.openDepsTab("consumers"),
-                ),
+                },
+                m("h1", "Dependencies"),
+                m(Switch, {
+                  label: "Show on timeline",
+                  checked: this.fileEvents && this.dependencyArrows.isEnabled(),
+                  disabled: !this.fileEvents,
+                  title: this.fileEvents
+                    ? undefined
+                    : "File events were not recorded",
+                  onchange: (event: Event) => {
+                    const input = event.target as HTMLInputElement;
+                    this.dependencyArrows.setEnabled(input.checked);
+                  },
+                }),
               ),
-            ),
+            },
+            this.fileEvents
+              ? m(
+                  Tree,
+                  this.renderDeps(
+                    "Produced by",
+                    this.producers,
+                    this.producerCount,
+                    () => this.openDepsTab("producers"),
+                  ),
+                  this.renderDeps(
+                    "Consumed by",
+                    this.consumers,
+                    this.consumerCount,
+                    () => this.openDepsTab("consumers"),
+                  ),
+                )
+              : m(
+                  "p",
+                  "Dependencies are unavailable because file events were not recorded. Record again without --no-file-events to include them.",
+                ),
+          ),
           m(
             Section,
             {
@@ -2707,7 +2734,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
               ? this.renderFiles()
               : m(
                   "p",
-                  "File events were disabled for this recording. File lists and dependency links are unavailable.",
+                  "File collection was disabled for this recording. No read, write or rename events were collected.",
                 ),
           ),
         ),
