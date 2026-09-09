@@ -54,17 +54,15 @@ Buildprof follows the complete process tree instead. It lets you:
 
 ## Install
 
-Pick whichever of these you already have. Recording needs Linux; the macOS
-builds exist so that `buildprof open` can view a recording copied from a build
-machine.
+Install on your Linux build machine using whichever method you prefer.
 
-**Shell installer** (Linux and macOS):
+**Shell installer**:
 
 ```bash
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
 ```
 
-**Homebrew** (Linux and macOS):
+**Homebrew**:
 
 ```bash
 brew install lalitmaganti/tap/buildprof
@@ -89,8 +87,7 @@ and install it with `apt install ./buildprof_*.deb` or
 `dnf install ./buildprof-*.rpm`.
 
 **Tarballs**: the same release page carries prebuilt binaries for x86_64 and
-aarch64 Linux, both glibc and static musl, and for Intel and Apple silicon
-Macs.
+aarch64 Linux, both glibc and static musl.
 
 ## Usage
 
@@ -121,9 +118,9 @@ ssh -L 9001:127.0.0.1:9001 user@buildhost
 
 VS Code Remote and JetBrains Gateway forward the port automatically. The wait
 gives up after ten minutes; adjust it with `--wait <SECONDS>`, where `0` waits
-forever. Alternatively, copy the recording to any machine with Buildprof
-installed and run `buildprof open` there; the macOS build exists for exactly
-that.
+forever. Alternatively, copy the recording to your own machine and open it
+in the [web UI](https://buildprof.lalitm.com). No local installation is needed
+for viewing.
 
 **Investigating a slow build?** See the [investigation guide](docs/investigating-builds.md)
 to find expensive commands, follow their inputs, and inspect compiler phases.
@@ -227,6 +224,15 @@ static files. Serve its contents from any web server and point the CLI at it:
 ```bash
 buildprof open --url https://ui.example.internal/v0.2.0 clean-build.buildprof
 ```
+
+## Platform support
+
+**Recording builds is currently supported on Linux only.** Install Buildprof
+on the Linux machine that runs your build.
+
+Existing recordings can be viewed on other platforms in the
+[web UI](https://buildprof.lalitm.com), without installing Buildprof. Viewing a
+recording does not require the same operating system it was recorded on.
 
 ## Requirements
 
