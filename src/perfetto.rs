@@ -64,6 +64,28 @@ impl Writer {
         Ok(writer)
     }
 
+    /// Preserve collection settings so an absent layer is not mistaken for no activity.
+    pub fn collection_options(
+        &mut self,
+        file_events: bool,
+        compiler_traces: bool,
+    ) -> io::Result<()> {
+        self.with_encoder(|trace| {
+            trace.packet(&mut |packet| {
+                packet.trace_attributes(&[
+                    (
+                        "buildprof.file_events",
+                        AttributeValue::Long(i64::from(file_events)),
+                    ),
+                    (
+                        "buildprof.compiler_traces",
+                        AttributeValue::Long(i64::from(compiler_traces)),
+                    ),
+                ])
+            })
+        })
+    }
+
     pub fn process_started(&mut self, pid: i32) -> io::Result<()> {
         self.with_encoder(|trace| {
             trace.packet(&mut |packet| {
@@ -372,6 +394,7 @@ mod tests {
                 .as_nanos()
         ));
         let mut writer = Writer::create(&path).unwrap();
+        writer.collection_options(false, true).unwrap();
         writer.process_started(42).unwrap();
         writer.finish().unwrap();
 
@@ -386,5 +409,7 @@ mod tests {
         assert!(contains(env!("CARGO_PKG_VERSION").as_bytes()));
         assert!(contains(TRACE_FORMAT_ATTRIBUTE.as_bytes()));
         assert!(contains(b"Processes"));
+        assert!(contains(b"buildprof.file_events"));
+        assert!(contains(b"buildprof.compiler_traces"));
     }
 }

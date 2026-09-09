@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess
 import tomllib
 
-from .model import load_file_opens, load_perfetto, load_trace_attributes
+from .model import load_file_opens, load_perfetto, load_trace_attributes, load_renames
 
 ROOT = Path(__file__).resolve().parents[2]
 ZSTD_MAGIC = bytes.fromhex("28b52ffd")
@@ -64,6 +64,8 @@ def test_trace_is_zstd_compressed_and_records_its_provenance(
     attributes = load_trace_attributes(trace)
     assert attributes["buildprof.version"] == manifest["package"]["version"]
     assert attributes["buildprof.trace_format"] == 1
+    assert attributes["buildprof.file_events"] == 1
+    assert attributes["buildprof.compiler_traces"] == 0
 
 
 def test_requested_output_path_is_used(run_trace, process_fixture: Path):
@@ -109,3 +111,42 @@ def test_file_opens_are_recorded_by_default(
     matching = [event for event in file_opens if event.path == str(opened)]
     assert matching
     assert all(event.fd >= 0 for event in matching)
+
+
+def test_no_file_events_preserves_process_tree_and_exit_status(
+    buildprof: Path, process_fixture: Path, tmp_path: Path
+):
+    from .test_process_tree import assert_structurally_valid, root_of
+
+    opened = tmp_path / "input.txt"
+    opened.write_text("input")
+    trace = tmp_path / "process-only.buildprof"
+    result = subprocess.run(
+        [str(buildprof), "--no-file-events", "--no-open", "-o", str(trace), "--",
+         "sh", "-c", '"$1" fork-exec && "$1" open-file "$2" && mv "$2" "$2.moved"; exit 17',
+         "fixture", str(process_fixture), str(opened)],
+        cwd=tmp_path, text=True, capture_output=True, timeout=10,
+    )
+    assert result.returncode == 17
+    assert opened.with_suffix(".txt.moved").read_text() == "input"
+    processes = load_perfetto(trace)
+    assert_structurally_valid(processes)
+    assert root_of(processes).segments[-1].exit_code == 17
+    assert any("leaf" in seg.command for proc in processes.values() for seg in proc.segments)
+    assert load_file_opens(trace) == []
+    assert load_renames(trace) == []
+    assert load_trace_attributes(trace)["buildprof.file_events"] == 0
+
+
+def test_no_file_events_skips_installing_a_seccomp_filter(buildprof: Path, tmp_path: Path):
+    def filter_count(command):
+        result = subprocess.run(command, text=True, capture_output=True, timeout=10, check=True)
+        line = next(line for line in result.stdout.splitlines() if line.startswith("Seccomp_filters:"))
+        return int(line.split(":", 1)[1])
+
+    baseline = filter_count(["cat", "/proc/self/status"])
+    for flags, expected in [([], baseline + 1), (["--no-file-events"], baseline)]:
+        assert filter_count([
+            str(buildprof), "--no-open", *flags, "-o", str(tmp_path / "filters.buildprof"),
+            "--", "cat", "/proc/self/status",
+        ]) == expected

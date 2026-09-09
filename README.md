@@ -168,6 +168,27 @@ Compiler tracing can also change compiler cache keys or turn cache hits into
 misses. Existing Rust compiler wrappers remain in the invocation chain, but
 cache preservation is not guaranteed in this mode.
 
+## Collection options
+
+Process creation, commands and timing are always recorded. File opens and
+renames are also recorded by default; to reduce overhead on builds with lots
+of filesystem activity, disable that layer:
+
+```bash
+buildprof --no-file-events -- make -j6
+```
+
+The process timeline remains available, but file lists and producer/consumer
+links are unavailable. This skips filesystem interception itself, rather than
+collecting and discarding events. The UI identifies recordings made this way.
+
+Compiler-internal tracing is a separate, opt-in layer. It can be combined with
+process-only recording:
+
+```bash
+buildprof --no-file-events --compiler-traces -- ninja -C build
+```
+
 ## How it works
 
 On Linux, Buildprof launches the command under `ptrace` and follows process

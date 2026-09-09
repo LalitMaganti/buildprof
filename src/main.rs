@@ -35,9 +35,10 @@ fn main() -> ExitCode {
             output,
             command,
             compiler_traces,
+            file_events,
             handoff,
             wait,
-        } => record(output, command, compiler_traces, handoff, wait),
+        } => record(output, command, compiler_traces, file_events, handoff, wait),
         args::Args::Open {
             source,
             url,
@@ -66,6 +67,7 @@ fn record(
     output: std::path::PathBuf,
     command: Vec<std::ffi::OsString>,
     compiler_traces: bool,
+    file_events: bool,
     handoff: Option<Handoff>,
     wait: Wait,
 ) -> ExitCode {
@@ -77,8 +79,12 @@ fn record(
         }
     };
 
+    if let Err(error) = writer.collection_options(file_events, compiler_traces) {
+        eprintln!("buildprof: could not write recording options: {error}");
+        return ExitCode::FAILURE;
+    }
     let mut compilers = compiler::Capture::new(compiler_traces);
-    let result = linux::record(&command, &mut writer, &mut compilers);
+    let result = linux::record(&command, &mut writer, &mut compilers, file_events);
     let write_result = writer.finish();
     let exit_code = match result {
         Ok(exit_code) => exit_code,
@@ -330,6 +336,7 @@ fn record(
     _output: std::path::PathBuf,
     _command: Vec<std::ffi::OsString>,
     _compiler_traces: bool,
+    _file_events: bool,
     _handoff: Option<Handoff>,
     _wait: Wait,
 ) -> ExitCode {

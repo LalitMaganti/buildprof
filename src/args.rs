@@ -41,6 +41,10 @@ struct Cli {
     )]
     output: PathBuf,
 
+    /// Skip filesystem events to reduce overhead; file dependencies will be unavailable.
+    #[usage(long, global)]
+    no_file_events: bool,
+
     /// Collect supported compiler-internal traces.
     #[usage(long, global)]
     compiler_traces: bool,
@@ -147,6 +151,7 @@ pub enum Args {
         output: PathBuf,
         command: Vec<OsString>,
         compiler_traces: bool,
+        file_events: bool,
         /// `None` leaves the trace on disk and prints where to open it.
         handoff: Option<Handoff>,
         wait: Wait,
@@ -183,6 +188,7 @@ fn from_cli(cli: Cli) -> Result<Args, String> {
         output: cli.output.clone(),
         command,
         compiler_traces: cli.compiler_traces,
+        file_events: !cli.no_file_events,
         handoff: if cli.no_open { None } else { default_handoff() },
         wait,
     };
@@ -273,6 +279,7 @@ mod tests {
         output: PathBuf,
         command: Vec<OsString>,
         compiler_traces: bool,
+        file_events: bool,
         handoff: Option<Handoff>,
         wait: Wait,
     }
@@ -282,6 +289,7 @@ mod tests {
             output,
             command,
             compiler_traces,
+            file_events,
             handoff,
             wait,
         } = parse_strings(args)
@@ -292,6 +300,7 @@ mod tests {
             output,
             command,
             compiler_traces,
+            file_events,
             handoff,
             wait,
         }
@@ -321,12 +330,39 @@ mod tests {
         assert_eq!(recording.output, PathBuf::from("output.buildprof"));
         assert_eq!(recording.command, [OsString::from("make")]);
         assert!(!recording.compiler_traces);
+        assert!(recording.file_events);
         assert_eq!(recording.wait, Some(Duration::from_secs(600)));
     }
 
     #[test]
     fn compiler_traces_can_be_enabled() {
         assert!(recording(&["buildprof", "--compiler-traces", "--", "make"]).compiler_traces);
+    }
+
+    #[test]
+    fn file_events_can_be_disabled_independently_of_compiler_traces() {
+        for args in [
+            vec![
+                "buildprof",
+                "--no-file-events",
+                "--compiler-traces",
+                "--",
+                "make",
+            ],
+            vec![
+                "buildprof",
+                "record",
+                "--no-file-events",
+                "--compiler-traces",
+                "--",
+                "make",
+            ],
+        ] {
+            let parsed = recording(&args);
+            assert!(!parsed.file_events);
+            assert!(parsed.compiler_traces);
+            assert_eq!(parsed.command, [OsString::from("make")]);
+        }
     }
 
     #[test]

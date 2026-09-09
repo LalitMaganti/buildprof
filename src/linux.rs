@@ -25,6 +25,7 @@ pub fn record(
     command: &[OsString],
     writer: &mut Writer,
     compilers: &mut Capture,
+    file_events: bool,
 ) -> io::Result<u8> {
     let argv = make_argv(command)?;
     let initial_command = command_line(command);
@@ -39,7 +40,7 @@ pub fn record(
         return Err(io::Error::last_os_error());
     }
     if child == 0 {
-        child_exec(&argv, compilers);
+        child_exec(&argv, compilers, file_events);
     }
 
     let mut status = 0;
@@ -57,14 +58,16 @@ pub fn record(
         return Err(io::Error::other("traced child did not stop before exec"));
     }
 
-    let options = O_TRACESYSGOOD
+    let mut options = O_TRACESYSGOOD
         | O_TRACEFORK
         | O_TRACEVFORK
         | O_TRACECLONE
         | O_TRACEEXEC
         | O_TRACEEXIT
-        | O_TRACESECCOMP
         | O_EXITKILL;
+    if file_events {
+        options |= O_TRACESECCOMP;
+    }
     call(SETOPTIONS, child, 0, options)?;
 
     let root = Process {
@@ -540,7 +543,7 @@ fn make_argv(command: &[OsString]) -> io::Result<Vec<CString>> {
         .collect()
 }
 
-fn child_exec(argv: &[CString], compilers: &Capture) -> ! {
+fn child_exec(argv: &[CString], compilers: &Capture, file_events: bool) -> ! {
     unsafe {
         compilers.configure_child();
         if libc::ptrace(
@@ -556,17 +559,19 @@ fn child_exec(argv: &[CString], compilers: &Capture) -> ! {
             );
         }
         libc::raise(libc::SIGSTOP);
-        if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1 {
-            child_fail(
-                b"could not set no_new_privs for the seccomp filter",
-                TRACE_SETUP_FAILURE_STATUS,
-            );
-        }
-        if install_filter().is_err() {
-            child_fail(
-                b"could not install the seccomp filter; the kernel or sandbox lacks seccomp-bpf",
-                TRACE_SETUP_FAILURE_STATUS,
-            );
+        if file_events {
+            if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1 {
+                child_fail(
+                    b"could not set no_new_privs for the seccomp filter",
+                    TRACE_SETUP_FAILURE_STATUS,
+                );
+            }
+            if install_filter().is_err() {
+                child_fail(
+                    b"could not install the seccomp filter; the kernel or sandbox lacks seccomp-bpf",
+                    TRACE_SETUP_FAILURE_STATUS,
+                );
+            }
         }
         let mut pointers: Vec<*const libc::c_char> = argv.iter().map(|arg| arg.as_ptr()).collect();
         pointers.push(ptr::null());

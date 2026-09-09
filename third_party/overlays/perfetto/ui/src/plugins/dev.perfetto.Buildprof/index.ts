@@ -2048,6 +2048,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
   private childCount = 0;
   private childTotal = 0n;
   private files: FileUse[] = [];
+  private fileEvents = true;
   private totalOpens = 0;
   private pathCount = 0;
   private readCount = 0;
@@ -2079,7 +2080,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
       group by path
     `;
 
-    const [segments, childTotals, childTop, fileTotals, fileRows] =
+    const [segments, childTotals, childTop, fileTotals, fileRows, collection] =
       await Promise.all([
         this.querySegments(`pid = ${this.pid}`),
         e.query(`
@@ -2104,7 +2105,14 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
           order by write_intent desc, cnt desc, path
           limit ${FILE_ROW_LIMIT * 3}
         `),
+        e.query(`
+          select count(*) as disabled
+          from metadata
+          where name = 'trace_attribute.buildprof.file_events' and int_value = 0
+        `),
       ]);
+    // Older recordings predate the setting and collected files by default.
+    this.fileEvents = collection.firstRow({ disabled: NUM }).disabled === 0;
 
     const proc = toProcesses(segments)[0];
     if (proc === undefined) return;
@@ -2145,7 +2153,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
       });
     }
 
-    await this.loadDependencies();
+    if (this.fileEvents) await this.loadDependencies();
 
     if (proc.ppid !== 0) {
       this.parent = toProcesses(
@@ -2650,51 +2658,57 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
         ),
         m(
           GridLayoutColumn,
-          m(
-            Section,
-            {
-              title: m(
-                "div",
-                {
-                  style: {
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  },
-                },
-                m("h1", "Dependencies"),
-                m(Switch, {
-                  label: "Show on timeline",
-                  checked: this.dependencyArrows.isEnabled(),
-                  onchange: (event: Event) => {
-                    const input = event.target as HTMLInputElement;
-                    this.dependencyArrows.setEnabled(input.checked);
-                  },
-                }),
-              ),
-            },
+          this.fileEvents &&
             m(
-              Tree,
-              this.renderDeps(
-                "Produced by",
-                this.producers,
-                this.producerCount,
-                () => this.openDepsTab("producers"),
-              ),
-              this.renderDeps(
-                "Consumed by",
-                this.consumers,
-                this.consumerCount,
-                () => this.openDepsTab("consumers"),
+              Section,
+              {
+                title: m(
+                  "div",
+                  {
+                    style: {
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    },
+                  },
+                  m("h1", "Dependencies"),
+                  m(Switch, {
+                    label: "Show on timeline",
+                    checked: this.dependencyArrows.isEnabled(),
+                    onchange: (event: Event) => {
+                      const input = event.target as HTMLInputElement;
+                      this.dependencyArrows.setEnabled(input.checked);
+                    },
+                  }),
+                ),
+              },
+              m(
+                Tree,
+                this.renderDeps(
+                  "Produced by",
+                  this.producers,
+                  this.producerCount,
+                  () => this.openDepsTab("producers"),
+                ),
+                this.renderDeps(
+                  "Consumed by",
+                  this.consumers,
+                  this.consumerCount,
+                  () => this.openDepsTab("consumers"),
+                ),
               ),
             ),
-          ),
           m(
             Section,
             {
               title: "Files",
             },
-            this.renderFiles(),
+            this.fileEvents
+              ? this.renderFiles()
+              : m(
+                  "p",
+                  "File events were disabled for this recording. File lists and dependency links are unavailable.",
+                ),
           ),
         ),
       ),
