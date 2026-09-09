@@ -20,8 +20,9 @@ TAGLINE = (
 INSTALL = """\
 ### Install
 
-Recording requires Linux; the macOS build only opens traces. Use whichever of
-these you already have:
+Recording requires Linux. Existing recordings can be viewed on other
+platforms in the web UI without installing Buildprof. Install on your Linux
+build machine using whichever method you prefer:
 
 **Shell script**
 

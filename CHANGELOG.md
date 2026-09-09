@@ -7,6 +7,17 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-09
+
+### Added
+
+- `--no-file-events` records the process timeline without filesystem tracing,
+  reducing overhead for builds that open many files. Compiler tracing remains
+  independently selectable.
+- Recordings carry their collection settings. The UI indicates when file
+  events were not recorded and explains why file lists and dependency links
+  are unavailable. Older recordings continue to open.
+
 ### Changed
 
 - Event names and categories are written once per trace and referenced by id

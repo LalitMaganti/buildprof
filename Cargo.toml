@@ -1,6 +1,6 @@
 [package]
 name = "buildprof"
-version = "0.2.2"
+version = "0.2.3"
 description = "Records every process and file access in a build and shows it as an interactive timeline"
 license = "Apache-2.0"
 readme = "README.md"
