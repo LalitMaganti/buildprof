@@ -11,7 +11,7 @@ generators, file access, and arbitrary tools launched along the way.
 ## Quick start
 
 On the Linux machine that runs the build, put `buildprof --` in front of your
-build command (\*):
+build command:<sup>*</sup>
 
 ```bash
 # Or Homebrew, mise, packages: see Install below.
@@ -31,8 +31,8 @@ in the browser:
 
 ![A clean ripgrep release build opened in Buildprof](docs/assets/ripgrep-release-clean.png)
 
-(\*) Bazel, Gradle, Buck2, and other build systems with a daemon need a
-slightly different command; see [Daemon build systems](#daemon-build-systems).
+<sup>*</sup> Bazel, Gradle, Buck2, and other build systems with a daemon need
+a slightly different command; see [Daemon build systems](#daemon-build-systems).
 
 ## Investigating a slow build
 
