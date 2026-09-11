@@ -34,7 +34,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Check out the release
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 
