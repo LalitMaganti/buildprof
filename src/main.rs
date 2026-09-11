@@ -158,6 +158,11 @@ fn open_in_ui(source: &Source, ui_url: &str, handoff: Handoff, wait: Wait) -> Ex
             eprintln!("buildprof: waiting for the browser to download the trace (Ctrl-C to stop)")
         }
     }
+    let site = site_origin(ui_url);
+    eprintln!(
+        "buildprof: if Chrome asks whether {site} may access other apps and services on this \
+         device, allow it; that is the page fetching the trace from this machine"
+    );
     match serve_trace_once(&listener, &trace, wait.map(|wait| Instant::now() + wait)) {
         Ok(()) => {
             eprintln!("buildprof: trace handed off to the browser");
@@ -168,12 +173,26 @@ fn open_in_ui(source: &Source, ui_url: &str, handoff: Handoff, wait: Wait) -> Ex
                 "buildprof: no browser fetched the trace in time; run `buildprof open {}` to try again",
                 trace.display()
             );
+            eprintln!(
+                "buildprof: if you blocked that for {site}, allow it again under Local network \
+                 access in Chrome's site settings first"
+            );
             ExitCode::FAILURE
         }
         Err(error) => {
             eprintln!("buildprof: trace handoff failed: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The scheme and host of `url`, which is how the browser names the site in
+/// its permission prompts.
+fn site_origin(url: &str) -> &str {
+    let host_start = url.find("://").map_or(0, |index| index + 3);
+    match url[host_start..].find('/') {
+        Some(path_start) => &url[..host_start + path_start],
+        None => url,
     }
 }
 
@@ -349,9 +368,21 @@ fn record(
 
 #[cfg(test)]
 mod tests {
-    use super::serve_trace_once;
+    use super::{serve_trace_once, site_origin};
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn site_origin_drops_the_path() {
+        assert_eq!(
+            site_origin("https://buildprof.lalitm.com/v0.2.3"),
+            "https://buildprof.lalitm.com"
+        );
+        assert_eq!(
+            site_origin("http://localhost:10000"),
+            "http://localhost:10000"
+        );
+    }
 
     #[test]
     fn trace_server_gives_up_at_the_deadline() {

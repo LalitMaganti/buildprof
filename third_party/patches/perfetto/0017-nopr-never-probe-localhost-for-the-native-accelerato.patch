@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Fri, 11 Sep 2026 13:12:04 +0100
+Subject: nopr: never probe localhost for the native accelerator
+
+---
+ ui/src/trace_processor/http_rpc_engine.ts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/ui/src/trace_processor/http_rpc_engine.ts b/ui/src/trace_processor/http_rpc_engine.ts
+index 5843854c..7d227f23 100644
+--- a/ui/src/trace_processor/http_rpc_engine.ts
++++ b/ui/src/trace_processor/http_rpc_engine.ts
+@@ -19,6 +19,7 @@ import {assertIsArrayBufferView, ensureExists} from '../base/assert';
+ import {EngineBase} from '../trace_processor/engine';
+ 
+ const RPC_CONNECT_TIMEOUT_MS = 2000;
++const PROBE_NATIVE_ACCELERATOR = false;
+ 
+ export interface HttpRpcState {
+   connected: boolean;
+@@ -113,6 +114,9 @@ export class HttpRpcEngine extends EngineBase {
+   static async checkConnection(): Promise<HttpRpcState> {
+     const RPC_URL = `http://${HttpRpcEngine.hostAndPort}/`;
+     const httpRpcState: HttpRpcState = {connected: false};
++    // Buildprof never uses the native accelerator, and probing it makes
++    // Chrome ask for local network access before any trace is opened.
++    if (!PROBE_NATIVE_ACCELERATOR) return httpRpcState;
+     console.info(
+       `It's safe to ignore the ERR_CONNECTION_REFUSED on ${RPC_URL} below. ` +
+         `That might happen while probing the external native accelerator. The ` +

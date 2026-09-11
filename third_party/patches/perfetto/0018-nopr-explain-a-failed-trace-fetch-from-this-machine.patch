@@ -1,0 +1,142 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Fri, 11 Sep 2026 13:22:43 +0100
+Subject: nopr: explain a failed trace fetch from this machine
+
+---
+ ui/src/base/http_utils.ts       |  9 +++++
+ ui/src/core/load_trace.ts       |  8 +++++
+ ui/src/frontend/error_dialog.ts | 63 +++++++++++++++++++++++++++++++++
+ 3 files changed, 80 insertions(+)
+
+diff --git a/ui/src/base/http_utils.ts b/ui/src/base/http_utils.ts
+index e616d573..c3c52401 100644
+--- a/ui/src/base/http_utils.ts
++++ b/ui/src/base/http_utils.ts
+@@ -87,3 +87,12 @@ export function getServingRoot() {
+   root = root.substring(0, root.lastIndexOf('/') + 1);
+   return root;
+ }
++
++export function isLoopbackUrl(url: string): boolean {
++  try {
++    const host = new URL(url).hostname;
++    return host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
++  } catch {
++    return false;
++  }
++}
+diff --git a/ui/src/core/load_trace.ts b/ui/src/core/load_trace.ts
+index e21e8508..850c3d0b 100644
+--- a/ui/src/core/load_trace.ts
++++ b/ui/src/core/load_trace.ts
+@@ -13,6 +13,7 @@
+ // limitations under the License.
+ 
+ import {ensureExists, assertTrue} from '../base/assert';
++import {isLoopbackUrl} from '../base/http_utils';
+ import {type time, Time, TimeSpan} from '../base/time';
+ import {cacheTrace} from './cache_manager';
+ import {
+@@ -216,6 +217,13 @@ async function loadTraceIntoEngine(
+   // trace_processor_shell). In this case we don't want the UI to load any
+   // file/stream and we just want to jump to the loading phase.
+   if (traceStream !== undefined) {
++    if (traceSource.type === 'URL' && isLoopbackUrl(traceSource.url)) {
++      updateStatus(
++        app,
++        'Fetching the trace from this machine. Allow it if Chrome asks for ' +
++          'access to apps and services on this device.',
++      );
++    }
+     const tStart = performance.now();
+     for (;;) {
+       const res = await traceStream.readChunk();
+diff --git a/ui/src/frontend/error_dialog.ts b/ui/src/frontend/error_dialog.ts
+index eade8c02..110c0c84 100644
+--- a/ui/src/frontend/error_dialog.ts
++++ b/ui/src/frontend/error_dialog.ts
+@@ -29,6 +29,7 @@ import {Callout} from '../widgets/callout';
+ import {CodeSnippet} from '../widgets/code_snippet';
+ import {Icons} from '../base/semantic_icons';
+ import {mapStackTraceWithMinifiedSourceMap} from '../base/source_map_utils';
++import {isLoopbackUrl} from '../base/http_utils';
+ 
+ const MODAL_KEY = 'crash_modal';
+ 
+@@ -489,6 +490,11 @@ class TraceParseErrorComponent implements m.ClassComponent<TraceParseErrorAttrs>
+ 
+ function showTraceFetchError(message: string) {
+   const details = message.replace(/\s*\(ERR:trace_fetch\)/g, '').trim();
++  const url = details.match(/^Could not fetch the trace at (\S+):/)?.[1];
++  if (url !== undefined && isLoopbackUrl(url)) {
++    showLocalTraceFetchError(url, details);
++    return;
++  }
+   showModal({
+     title: 'Could not fetch the trace',
+     content: () =>
+@@ -517,6 +523,63 @@ function showTraceFetchError(message: string) {
+   });
+ }
+ 
++// Chrome asks before a public site may reach this machine. Once blocked, every
++// fetch fails with a bare "Failed to fetch", indistinguishable from nothing
++// listening, so ask the Permissions API which case this is where it can.
++async function localNetworkAccessDenied(): Promise<boolean> {
++  try {
++    const name = 'local-network-access' as PermissionName;
++    return (await navigator.permissions.query({name})).state === 'denied';
++  } catch {
++    return false;
++  }
++}
++
++async function showLocalTraceFetchError(url: string, details: string) {
++  const denied = await localNetworkAccessDenied();
++  const allowStep =
++    'Allow "Local network access" for this site in the site settings ' +
++    'next to the address bar.';
++  const retryStep = 'Run buildprof open <TRACE> again.';
++  const promptStep =
++    'If Chrome asks whether this site may access other apps and services ' +
++    'on this device, allow it.';
++  showModal({
++    title: denied
++      ? 'Chrome is blocking access to this machine'
++      : 'Could not fetch the trace from this machine',
++    content: () =>
++      m(
++        '.pf-error-dialog',
++        m(
++          Callout,
++          {icon: Icons.Warning, intent: Intent.Warning},
++          denied
++            ? 'This site was denied permission to access other apps and ' +
++                'services on this device, which is how the page fetches ' +
++                `the trace from ${url}.`
++            : `Nothing answered at ${url}. The buildprof command serving ` +
++                'the trace may have stopped waiting, or Chrome may be ' +
++                'blocking this site from reaching this machine.',
++        ),
++        m(
++          '.pf-error-dialog__note',
++          m(
++            'ol',
++            ...(denied
++              ? [m('li', allowStep), m('li', retryStep)]
++              : [m('li', retryStep), m('li', promptStep), m('li', allowStep)]),
++          ),
++        ),
++        m(CodeSnippet, {
++          text: details,
++          language: 'Error details',
++          class: 'pf-error-dialog__code',
++        }),
++      ),
++  });
++}
++
+ function showWebUSBError() {
+   showModal({
+     title: 'A WebUSB error occurred',

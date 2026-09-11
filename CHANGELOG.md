@@ -7,6 +7,19 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- The UI no longer probes localhost for a native Trace Processor when it
+  starts. Chrome asked for permission to access other apps and services on
+  the device for that probe before any trace was opened, and blocking it
+  silently broke loading traces from the CLI.
+- The CLI explains that Chrome permission prompt while it waits for the
+  browser to fetch a trace, and how to recover after blocking it.
+- When the UI fetches a trace from this machine, the loading page says to
+  allow that prompt. If the fetch fails, the error says whether Chrome is
+  blocking the site or nothing answered, and how to recover, instead of the
+  generic download error.
+
 ## [0.2.3] - 2026-09-09
 
 ### Added
