@@ -31,8 +31,8 @@ in the browser:
 
 ![A clean ripgrep release build opened in Buildprof](docs/assets/ripgrep-release-clean.png)
 
-<sup>*</sup> Bazel, Gradle, Buck2, and other build systems with a daemon need
-a slightly different command; see [Daemon build systems](#daemon-build-systems).
+<sup>*</sup> *Bazel, Gradle, Buck2, and other build systems with a daemon need
+a slightly different command; see [Daemon build systems](#daemon-build-systems).*
 
 ## Investigating a slow build
 
