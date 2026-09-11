@@ -29,7 +29,7 @@ To see the result without installing anything, open the pre-recorded
 [ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
 in the browser:
 
-![A clean ripgrep release build opened in Buildprof](docs/assets/ripgrep-release-clean.png)
+![A clean ripgrep release build in Buildprof, with the final rustc rg compile selected](docs/assets/ripgrep-release-clean.png)
 
 <sup>*</sup> *Bazel, Gradle, Buck2, and other build systems with a daemon need
 a slightly different command; see [Daemon build systems](#daemon-build-systems).*
