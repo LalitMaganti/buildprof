@@ -19,7 +19,7 @@ mod model;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod perfetto;
 
-use args::{Handoff, Source, Wait};
+use args::{Handoff, Wait};
 use handoff::open_in_ui;
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -120,7 +120,7 @@ fn record(
     match handoff {
         Some(handoff) => {
             let _ = open_in_ui(
-                &Source::Trace(output),
+                &args::Source::Trace(output),
                 args::DEFAULT_UI_URL,
                 handoff,
                 wait,
