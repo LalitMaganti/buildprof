@@ -176,7 +176,7 @@ pub fn parse() -> Args {
     match from_cli(Cli::parse()) {
         Ok(args) => args,
         Err(message) => {
-            eprintln!("buildprof: {message}");
+            error!("{message}");
             std::process::exit(2);
         }
     }

@@ -1,3 +1,6 @@
+#[macro_use]
+mod report;
+
 mod args;
 #[cfg(target_os = "linux")]
 mod compiler;
@@ -12,6 +15,7 @@ mod model;
 mod perfetto;
 
 use args::{Handoff, Source, Wait};
+use std::io::IsTerminal;
 use std::net::TcpListener;
 use std::process::ExitCode;
 use std::time::Instant;
@@ -23,6 +27,7 @@ const HANDOFF_PORT: u16 = 9001;
 const TRACE_URL: &str = "http://127.0.0.1:9001/trace";
 
 fn main() -> ExitCode {
+    report::init();
     #[cfg(target_os = "linux")]
     if let Some(code) = compiler::run_wrapper() {
         return code;
@@ -43,7 +48,7 @@ fn main() -> ExitCode {
             url,
             handoff,
             wait,
-        } => open_in_ui(&source, &url, handoff, wait),
+        } => open_in_ui(&source, &url, handoff, wait, false),
         args::Args::Examples => list_examples(),
     }
 }
@@ -55,8 +60,19 @@ fn list_examples() -> ExitCode {
         .max()
         .unwrap_or_default();
     for example in args::EXAMPLES {
-        println!("{:width$}  {}", example.name, example.description);
-        println!("{:width$}  buildprof open --example {}", "", example.name);
+        let stdout = yansi::Condition::cached(std::io::stdout().is_terminal());
+        println!(
+            "{:width$}  {}",
+            yansi::Painted::new(example.name).bold().whenever(stdout),
+            example.description
+        );
+        println!(
+            "{:width$}  {}",
+            "",
+            yansi::Painted::new(format_args!("buildprof open --example {}", example.name))
+                .dim()
+                .whenever(stdout)
+        );
     }
     ExitCode::SUCCESS
 }
@@ -73,13 +89,16 @@ fn record(
     let mut writer = match perfetto::Writer::create(&output) {
         Ok(writer) => writer,
         Err(error) => {
-            eprintln!("buildprof: could not write {}: {error}", output.display());
+            error!(
+                "could not write {}: {error}",
+                report::emph(output.display())
+            );
             return ExitCode::FAILURE;
         }
     };
 
     if let Err(error) = writer.collection_options(file_events, compiler_traces) {
-        eprintln!("buildprof: could not write recording options: {error}");
+        error!("could not write recording options: {error}");
         return ExitCode::FAILURE;
     }
     let mut compilers = compiler::Capture::new(compiler_traces);
@@ -88,100 +107,159 @@ fn record(
     let exit_code = match result {
         Ok(exit_code) => exit_code,
         Err(error) => {
-            eprintln!("buildprof: recording failed: {error}");
+            error!("recording failed: {error}");
             return ExitCode::FAILURE;
         }
     };
     if let Err(error) = write_result {
-        eprintln!("buildprof: could not write {}: {error}", output.display());
+        error!(
+            "could not write {}: {error}",
+            report::emph(output.display())
+        );
         return ExitCode::FAILURE;
     }
-    eprintln!("buildprof: wrote {}", output.display());
+    report::gap();
     match handoff {
         Some(handoff) => {
-            let _ = open_in_ui(&Source::Trace(output), args::DEFAULT_UI_URL, handoff, wait);
+            let _ = open_in_ui(
+                &Source::Trace(output),
+                args::DEFAULT_UI_URL,
+                handoff,
+                wait,
+                true,
+            );
         }
-        None => eprintln!(
-            "buildprof: open {} and choose {}",
-            args::DEFAULT_UI_URL,
-            output.display()
+        None => head!(
+            "Recorded {}; open {} and choose it",
+            report::emph(output.display()),
+            report::emph(args::DEFAULT_UI_URL)
         ),
     }
     ExitCode::from(exit_code)
 }
 
-fn open_in_ui(source: &Source, ui_url: &str, handoff: Handoff, wait: Wait) -> ExitCode {
+/// `recorded` says the trace was just written by this run, which changes
+/// how the report opens.
+fn open_in_ui(
+    source: &Source,
+    ui_url: &str,
+    handoff: Handoff,
+    wait: Wait,
+    recorded: bool,
+) -> ExitCode {
     let ui_url = ui_url.trim_end_matches('/');
     let trace = match source {
         Source::Example(example) => {
             let url = format!("{ui_url}/#!/?url={}/{}", args::EXAMPLES_URL, example.file);
-            eprintln!("buildprof: opening the {} example", example.name);
-            present(&url, handoff);
+            match handoff {
+                Handoff::Browser => {
+                    head!("Opening the {} example in your browser", example.name);
+                    launch(&url);
+                }
+                Handoff::Ssh => {
+                    head!("Open the {} example from your own machine:", example.name);
+                    report::gap();
+                    detail!("{url}");
+                    report::gap();
+                }
+            }
             return ExitCode::SUCCESS;
         }
         Source::Trace(trace) => trace,
     };
 
-    let Ok(trace) = trace.canonicalize() else {
-        eprintln!("buildprof: could not resolve {}", trace.display());
+    let Ok(served) = trace.canonicalize() else {
+        error!("could not resolve {}", report::emph(trace.display()));
         return ExitCode::FAILURE;
     };
     let listener = match TcpListener::bind(("127.0.0.1", HANDOFF_PORT)) {
         Ok(listener) => listener,
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
-            eprintln!(
-                "buildprof: port {HANDOFF_PORT} is already in use, probably by another buildprof \
-                 still waiting for a browser or by a Perfetto `trace_processor --httpd`"
+            error!(
+                "port {HANDOFF_PORT} is already in use, probably by another buildprof still \
+                 waiting for a browser or by a Perfetto `trace_processor --httpd`"
             );
-            eprintln!(
-                "buildprof: stop it and retry, or open {ui_url} and choose {}",
-                trace.display()
+            hint!(
+                "stop it and retry, or open {} and choose {}",
+                report::emph(ui_url),
+                report::emph(trace.display())
             );
             return ExitCode::FAILURE;
         }
         Err(error) => {
-            eprintln!("buildprof: could not start the trace handoff server: {error}");
+            error!("could not start the trace handoff server: {error}");
             return ExitCode::FAILURE;
         }
     };
 
     let url = format!("{ui_url}/#!/?url={TRACE_URL}");
-    eprintln!("buildprof: serving {} at {TRACE_URL}", trace.display());
-    present(&url, handoff);
-    match wait {
-        Some(wait) => eprintln!(
-            "buildprof: waiting up to {}s for the browser to download the trace (Ctrl-C to stop)",
-            wait.as_secs()
-        ),
-        None => {
-            eprintln!("buildprof: waiting for the browser to download the trace (Ctrl-C to stop)")
+    let path = report::emph(trace.display());
+    match handoff {
+        Handoff::Browser => {
+            if recorded {
+                head!("Recorded {path}, opening it in your browser");
+            } else {
+                head!("Opening {path} in your browser");
+            }
+            launch(&url);
+        }
+        Handoff::Ssh => {
+            if recorded {
+                head!("Recorded {path}");
+            } else {
+                head!("Serving {path}");
+            }
+            report::gap();
+            line!("This is an SSH session. From your own machine, forward the trace port:");
+            report::gap();
+            detail!(
+                "ssh -L {HANDOFF_PORT}:127.0.0.1:{HANDOFF_PORT} {}",
+                ssh_target()
+            );
+            report::gap();
+            line!("Then open the UI there:");
+            report::gap();
+            detail!("{url}");
+            report::gap();
         }
     }
-    let site = site_origin(ui_url);
-    eprintln!(
-        "buildprof: if Chrome asks to let {site} access other apps and services on this \
-         device, allow it; that is the page fetching the trace from this machine"
+    line!(
+        "If the browser asks to access other apps and services on this device, allow it; that \
+         is the page fetching the trace."
     );
-    match serve_trace_once(listener, &trace, wait.map(|wait| Instant::now() + wait)) {
+    report::gap();
+    match wait {
+        Some(wait) => line!("Waiting up to {} (Ctrl-C to stop)", humanize(wait)),
+        None => line!("Waiting for the browser (Ctrl-C to stop)"),
+    }
+    match serve_trace_once(listener, &served, wait.map(|wait| Instant::now() + wait)) {
         Ok(()) => {
-            eprintln!("buildprof: trace handed off to the browser");
+            line!("Handed off to the browser");
             ExitCode::SUCCESS
         }
         Err(error) if error.kind() == std::io::ErrorKind::TimedOut => {
-            eprintln!(
-                "buildprof: no browser fetched the trace in time; run `buildprof open {}` to try again",
-                trace.display()
+            report::gap();
+            error!(
+                "no browser fetched the trace; run {} to try again",
+                report::emph(format_args!("buildprof open {}", trace.display()))
             );
-            eprintln!(
-                "buildprof: if you blocked that for {site}, allow it again in the site settings \
-                 first: \"Apps on device\" in Chrome, \"Access this device\" in Firefox"
+            hint!(
+                "if you blocked the browser's prompt for {}, allow it again in the site \
+                 settings: \"Apps on device\" in Chrome, \"Access this device\" in Firefox",
+                site_origin(ui_url)
             );
             ExitCode::FAILURE
         }
         Err(error) => {
-            eprintln!("buildprof: trace handoff failed: {error}");
+            error!("trace handoff failed: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+fn launch(url: &str) {
+    if launch_browser(url).is_err() {
+        note!("Could not launch a browser; open {}", report::emph(url));
     }
 }
 
@@ -195,32 +273,13 @@ fn site_origin(url: &str) -> &str {
     }
 }
 
-/// Gets `url` in front of the user: launched here, or spelled out when the
-/// browser has to run on another machine.
-fn present(url: &str, handoff: Handoff) {
-    match handoff {
-        Handoff::Browser => {
-            eprintln!("buildprof: opening {url}");
-            if launch_browser(url).is_err() {
-                eprintln!("buildprof: could not launch a browser; open that URL yourself");
-            }
-        }
-        Handoff::Ssh => {
-            eprintln!(
-                "buildprof: this is an SSH session, so the browser has to run on your own machine"
-            );
-            if url.contains(TRACE_URL) {
-                eprintln!("buildprof: from there, forward the trace port:");
-                eprintln!(
-                    "buildprof:     ssh -L {HANDOFF_PORT}:127.0.0.1:{HANDOFF_PORT} {}",
-                    ssh_target()
-                );
-                eprintln!("buildprof: then open:");
-            } else {
-                eprintln!("buildprof: open:");
-            }
-            eprintln!("buildprof:     {url}");
-        }
+fn humanize(duration: std::time::Duration) -> String {
+    let seconds = duration.as_secs();
+    match seconds {
+        1 => "1 second".to_owned(),
+        s if s < 60 || s % 60 != 0 => format!("{s} seconds"),
+        60 => "1 minute".to_owned(),
+        s => format!("{} minutes", s / 60),
     }
 }
 
@@ -327,9 +386,10 @@ fn record(
     _handoff: Option<Handoff>,
     _wait: Wait,
 ) -> ExitCode {
-    eprintln!("buildprof: recording needs Linux; this build can only view traces");
-    eprintln!(
-        "buildprof: record on a Linux machine, copy the trace here, and run `buildprof open <TRACE>`"
+    error!("recording needs Linux; this build can only view traces");
+    hint!(
+        "record on a Linux machine, copy the trace here, and run {}",
+        report::emph("buildprof open <TRACE>")
     );
     ExitCode::FAILURE
 }
@@ -339,6 +399,16 @@ mod tests {
     use super::{serve_trace_once, site_origin};
     use std::io::{Read, Write};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn humanize_reads_naturally() {
+        use super::humanize;
+        assert_eq!(humanize(Duration::from_secs(1)), "1 second");
+        assert_eq!(humanize(Duration::from_secs(45)), "45 seconds");
+        assert_eq!(humanize(Duration::from_secs(60)), "1 minute");
+        assert_eq!(humanize(Duration::from_secs(90)), "90 seconds");
+        assert_eq!(humanize(Duration::from_secs(600)), "10 minutes");
+    }
 
     #[test]
     fn site_origin_drops_the_path() {

@@ -65,7 +65,7 @@ impl Capture {
             declared_tracks: HashSet::new(),
         };
         if enabled && let Err(error) = capture.prepare() {
-            eprintln!("buildprof: compiler tracing unavailable: {error}");
+            error!("compiler tracing unavailable: {error}");
         }
         capture
     }
@@ -95,7 +95,7 @@ impl Capture {
             if let Err(error) =
                 self.import_time_trace(pid, process_start_ns, CLANG_BACKEND, &clang, writer)
             {
-                eprintln!("buildprof: could not import {}: {error}", clang.display());
+                error!("could not import {}: {error}", clang.display());
             }
             let _ = fs::remove_file(clang);
         }
@@ -105,7 +105,7 @@ impl Capture {
             if let Err(error) =
                 self.import_time_trace(pid, process_start_ns, LLD_BACKEND, &lld, writer)
             {
-                eprintln!("buildprof: could not import {}: {error}", lld.display());
+                error!("could not import {}: {error}", lld.display());
             }
             let _ = fs::remove_file(lld);
         }
@@ -117,7 +117,7 @@ impl Capture {
             let path = entry.path();
             if rust_profile_pid(&path) == Some(pid) {
                 if let Err(error) = self.import_rust(pid, &path, writer) {
-                    eprintln!("buildprof: could not import {}: {error}", path.display());
+                    error!("could not import {}: {error}", path.display());
                 }
                 let _ = fs::remove_file(path);
             }
@@ -466,7 +466,7 @@ fn relay_version_query(mut command: Command, cache: &Path) -> ExitCode {
     let output = match command.output() {
         Ok(output) => output,
         Err(error) => {
-            eprintln!("buildprof: compiler wrapper failed: {error}");
+            error!("compiler wrapper failed: {error}");
             return ExitCode::from(WRAPPER_FAILURE_EXIT_CODE);
         }
     };
@@ -567,7 +567,7 @@ pub fn run_wrapper() -> Option<ExitCode> {
         _ => return None,
     };
     let error = command.exec();
-    eprintln!("buildprof: compiler wrapper failed: {error}");
+    error!("compiler wrapper failed: {error}");
     Some(ExitCode::from(WRAPPER_FAILURE_EXIT_CODE))
 }
 

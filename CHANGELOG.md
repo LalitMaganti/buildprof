@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- Messages are coloured when they go to a terminal: errors red, hints yellow,
+  and paths, URLs, and commands highlighted. `NO_COLOR` turns colour off and
+  `CLICOLOR_FORCE` turns it on for pipes.
+- The report printed after a recording is set apart from the build's output
+  and is shorter: a headline, the port forward and URL on their own lines
+  over SSH, the browser permission note, and the wait.
+
 ### Fixed
 
 - `--compiler-traces` now collects nightly Rust self-profile data whenever
