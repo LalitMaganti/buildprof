@@ -15,6 +15,16 @@ Time runs left to right, bar width shows duration, and child processes appear
 beneath the process which launched them. Use **W / S** to zoom and **A / D**
 to pan, or **Ctrl / ⌘ + scroll** to zoom at the pointer.
 
+![The ripgrep timeline, with callouts on the time axis, the Build concurrency track, the Process tree track, child processes beneath their parent, and the long final compilation](assets/ripgrep-tour-timeline.png)
+
+1. The time axis. The whole recording is visible when a trace opens.
+2. **Build concurrency** counts the processes doing work at each moment.
+3. **Process tree** shows every process as a bar.
+4. Child processes appear beneath the process which launched them, here the
+   `rustc` invocations beneath `cargo build`.
+5. A long-running command at the end of the build, the final `rustc rg`
+   compilation, is the kind of bar worth clicking first.
+
 Look for long-running commands, gaps before compilation starts, and processes
 which keep running after everything else finishes. Click a process to inspect
 its command line, working directory, lifetime, and exit status. For example,
@@ -34,12 +44,25 @@ see which processes overlap it, then follow their links to inspect them.
 A value of one can still represent a multithreaded compiler using many cores;
 this track does not measure CPU utilization.
 
+![A selected low-concurrency interval, with callouts on the interval, its one active leaf process, and the link to that process](assets/ripgrep-tour-concurrency.png)
+
+1. The selected interval on the **Build concurrency** track.
+2. How many leaf processes were active during it.
+3. Links to those processes, here the single `rustc rg` compilation.
+
 To summarize a busy interval, click and drag across the **Process tree** track
 to select a time range, then open **Build aggregation** in the bottom panel.
 Choose **Tool**, **Directory**, or **Action** to group the work. Compare each
-group's count, total duration, and longest duration; expand it to inspect
-individual processes. This helps distinguish many short commands from a few
-long ones.
+group's count, total duration, and longest duration; click a group to list
+its individual processes. This helps distinguish many short commands from a
+few long ones.
+
+![An area selection with the Build aggregation panel open, with callouts on the selection, the tab, the grouping buttons, and a group row](assets/ripgrep-tour-aggregation.png)
+
+1. The selected time range across the **Process tree** track.
+2. The **Build aggregation** tab.
+3. **Tool**, **Directory**, and **Action** choose the grouping.
+4. One group, with its count, summed duration, and longest duration.
 
 Aggregation includes processes which never spawned children and whose
 lifetimes overlap the selected range. It uses their full lifetimes, including
@@ -62,11 +85,21 @@ observed file relationships, not a complete account of the build system's
 scheduling decisions; files produced before recording have no producer in
 the trace.
 
-![A selected ripgrep compiler process, with callouts for its command and input producers](assets/ripgrep-tour-process.png)
+![A selected ripgrep compiler process, with callouts on its bar, its command, its input producers, and the child it spawned](assets/ripgrep-tour-process.png)
 
-The numbered callouts identify the selected process (1), its command (2),
-and the **Produced by** links (3). See the [ripgrep tour](ripgrep-tutorial.md)
-to follow these relationships yourself.
+1. The selected process on the timeline.
+2. Its command, which identifies what it was compiling.
+3. The **Produced by** links to the processes which wrote its inputs.
+4. The child it spawned, under **Spawned**, here the start of a linking chain.
+
+![The same selection with Show on timeline enabled, drawing arrows from every producer to the selected process](assets/ripgrep-tour-dependencies.png)
+
+1. **Show on timeline** draws an arrow from each producer to the selected
+   process, which makes it easy to see how long before the consumer each
+   input was ready.
+
+See the [ripgrep tour](ripgrep-tutorial.md) to follow these relationships
+yourself.
 
 ## Compiler details
 
@@ -78,7 +111,23 @@ buildprof --compiler-traces -- cargo +nightly build
 
 In the recording, select a process with compiler events and click
 **Show compiler track**. Expand its summary track to see per-thread phases;
-zoom in and click an event to inspect its duration and arguments.
+zoom in and click an event to inspect its duration and arguments. The
+screenshots below show a recording of a single `clang++ -O2` compilation.
+
+![A Clang compilation with its compiler track expanded, with callouts on the Show compiler track button, the new track, and the per-thread phases](assets/compiler-track.png)
+
+1. **Show compiler track** appears in the details of a process that has
+   compiler events.
+2. The compiler track is added beneath the process tree, with one row per
+   compiler thread.
+3. Expanding it shows the phases: here the Clang frontend, then the LLVM
+   optimizer and code generation in the backend.
+
+![A selected Backend phase, with callouts on the event and on its name and duration in the details](assets/compiler-event.png)
+
+1. Click a phase to select it.
+2. Its name and backend.
+3. Its start time and duration, with the arguments the compiler attached.
 
 You can also replay just an expensive compilation or link rather than the
 whole build. Run its command from the recorded working directory, keeping

@@ -21,6 +21,7 @@ third_party/src/
 /docs/assets/*
 !/docs/assets/ripgrep-release-clean.png
 !/docs/assets/ripgrep-tour-*.png
+!/docs/assets/compiler-*.png
 
 # Local article capture tooling and intermediate outputs.
 /tools/capture_blog_*.mjs
