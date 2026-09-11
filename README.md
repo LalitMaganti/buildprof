@@ -22,23 +22,22 @@ buildprof -- make -j8
 
 When the build finishes, the recording is saved as `output.buildprof` and
 opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
-Any build system works; see [Build systems](#build-systems).
+**Nothing is ever uploaded**: the page fetches the recording from localhost,
+which is why the browser asks once for permission to access other apps and
+services on this device. Allow it. See
+[Opening recordings](#opening-recordings) for details.
 
-**Nothing is ever uploaded.** buildprof.lalitm.com only delivers the UI
-itself. Your browser fetches the recording from localhost and processes it
-entirely in the page; no trace data leaves your machine.
-
-The browser asks once whether buildprof.lalitm.com may access other apps and
-services on this device. Allow it: that permission is what lets the page fetch
-the recording from localhost. If you block it, the trace never loads; allow it
-again in the site settings next to the address bar, under "Apps on device" in
-Chrome or "Access this device" in Firefox.
+Any build system works (\*). See [Build systems](#build-systems) for what is
+recorded.
 
 To see the result without installing anything, open the pre-recorded
 [ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
 in the browser:
 
 ![A clean ripgrep release build opened in Buildprof](docs/assets/ripgrep-release-clean.png)
+
+(\*) Build systems that use a daemon, such as Bazel, Gradle, and Buck2, need to
+be run a little differently; see [Daemon build systems](#daemon-build-systems).
 
 ## Why use Buildprof?
 
@@ -95,19 +94,86 @@ and install it with `apt install ./buildprof_*.deb` or
 **Tarballs**: the same release page carries prebuilt binaries for x86_64 and
 aarch64 Linux, both glibc and static musl.
 
+### Requirements
+
+**Recording builds is currently supported on Linux only.** The kernel or
+container configuration must permit tracing child processes: Docker needs
+`--cap-add SYS_PTRACE`, `kernel.yama.ptrace_scope` must be below 3, and
+gVisor-style sandboxes cannot trace at all. Installing from source needs Rust
+1.91 or newer.
+
+Existing recordings can be viewed on any platform in the
+[web UI](https://buildprof.lalitm.com), without installing Buildprof. Viewing a
+recording does not require the same operating system it was recorded on.
+
 ## Usage
 
-Choose another output path or disable automatic opening when needed:
+### Recording a build
+
+Put `buildprof --` in front of the build command. Choose another output path
+or disable automatic opening when needed:
 
 ```bash
 buildprof -o clean-build.buildprof --no-open -- ninja -C out
 ```
+
+Process creation, commands, and timing are always recorded. File opens and
+renames are also recorded by default; to reduce overhead on builds with lots
+of filesystem activity, disable that layer:
+
+```bash
+buildprof --no-file-events -- make -j6
+```
+
+The process timeline remains available, but file lists and producer/consumer
+links are unavailable. This skips filesystem interception itself, rather than
+collecting and discarding events. The UI identifies recordings made this way.
+
+### Compiler details
+
+Process timing is usually the right level for understanding a build. When a
+particular compiler or linker invocation needs a closer look, enable compiler
+tracing:
+
+```bash
+buildprof --compiler-traces -- cargo build
+```
+
+Buildprof currently imports Clang `-ftime-trace`, explicitly selected LLD
+`--time-trace`, and nightly Rust self-profile data. These events appear as a
+summary of active compiler threads with expandable per-thread phase tracks.
+Compiler tracing can be combined with process-only recording:
+
+```bash
+buildprof --no-file-events --compiler-traces -- ninja -C build
+```
+
+A build which invokes Clang through an absolute path currently bypasses
+compiler tracing. Buildprof will still record the compiler process, but its
+Clang and LLD internal phases will be absent.
+
+Compiler tracing can also change compiler cache keys or turn cache hits into
+misses. Existing Rust compiler wrappers remain in the invocation chain, but
+cache preservation is not guaranteed in this mode.
+
+### Opening recordings
 
 Open an existing recording later with:
 
 ```bash
 buildprof open clean-build.buildprof
 ```
+
+buildprof.lalitm.com only delivers the UI itself. Your browser fetches the
+recording from localhost and processes it entirely in the page; no trace data
+leaves your machine.
+
+Because the page comes from buildprof.lalitm.com and the recording from
+localhost, the browser asks once whether the site may access other apps and
+services on this device. Allow it. If you block it, the trace never loads. To
+recover, allow it again in the site settings next to the address bar, under
+"Apps on device" in Chrome or "Access this device" in Firefox, then run
+`buildprof open` again.
 
 Recordings contain command lines and filesystem paths. Review them before
 sending them to anyone.
@@ -128,8 +194,10 @@ forever. Alternatively, copy the recording to your own machine and open it
 in the [web UI](https://buildprof.lalitm.com). No local installation is needed
 for viewing.
 
-**Investigating a slow build?** See the [investigation guide](docs/investigating-builds.md)
-to find expensive commands, follow their inputs, and inspect compiler phases.
+### Investigating a slow build
+
+See the [investigation guide](docs/investigating-builds.md) to find expensive
+commands, follow their inputs, and inspect compiler phases.
 
 ## Build systems
 
@@ -145,51 +213,20 @@ build system. These are exercised by the conformance suite on every change:
 
 Anything else that runs as a child process is recorded the same way: shell
 scripts, code generators, wrapper scripts, and tools launched by the build.
+
+### Daemon build systems
+
 Work handed to a daemon or a remote executor happens outside the process tree
-and is not visible; use local or no-daemon modes where a build system offers
-them.
+and is not visible. If the daemon is already running, the recording shows only
+the client; if the recorded command starts it, the recording continues until
+the daemon exits. Run without the daemon, or stop it before and after the
+build:
 
-## Compiler details
-
-Process timing is usually the right level for understanding a build. When a
-particular compiler or linker invocation needs a closer look, enable compiler
-tracing:
-
-```bash
-buildprof --compiler-traces -- cargo build
-```
-
-Buildprof currently imports Clang `-ftime-trace`, explicitly selected LLD
-`--time-trace`, and nightly Rust self-profile data. These events appear as a
-summary of active compiler threads with expandable per-thread phase tracks.
-
-A build which invokes Clang through an absolute path currently bypasses
-compiler tracing. Buildprof will still record the compiler process, but its
-Clang and LLD internal phases will be absent.
-
-Compiler tracing can also change compiler cache keys or turn cache hits into
-misses. Existing Rust compiler wrappers remain in the invocation chain, but
-cache preservation is not guaranteed in this mode.
-
-## Collection options
-
-Process creation, commands and timing are always recorded. File opens and
-renames are also recorded by default; to reduce overhead on builds with lots
-of filesystem activity, disable that layer:
-
-```bash
-buildprof --no-file-events -- make -j6
-```
-
-The process timeline remains available, but file lists and producer/consumer
-links are unavailable. This skips filesystem interception itself, rather than
-collecting and discarding events. The UI identifies recordings made this way.
-
-Compiler-internal tracing is a separate, opt-in layer. It can be combined with
-process-only recording:
-
-```bash
-buildprof --no-file-events --compiler-traces -- ninja -C build
+```sh
+bazel shutdown && buildprof -- sh -c 'bazel build //... ; bazel shutdown'
+buildprof -- ./gradlew --no-daemon build
+buck2 kill && buildprof -- sh -c 'buck2 build //... ; buck2 kill'
+sccache --stop-server && buildprof -- sh -c 'cargo build; sccache --stop-server'
 ```
 
 ## How it works
@@ -204,11 +241,7 @@ storage format, query engine, and core timeline interactions; Buildprof adds
 the build-specific view on top, including process ancestry, command types,
 concurrency, file relationships, and optional compiler timing data.
 
-Because recording follows descendants, work delegated to an existing daemon,
-a remote executor, or another machine is outside the trace. Use local or
-no-daemon execution modes when a build system provides them.
-
-## Backwards compatibility
+### Backwards compatibility
 
 Before 1.0, the CLI and the UI move in lockstep at the minor version: a
 recording is meant to be viewed in a UI from the same 0.x series, and patch
@@ -222,7 +255,7 @@ From 1.0 onward, the trace format is stable and compatibility is permanent:
 any recording opens in every later UI, and newer UIs simply add features on
 top of older recordings.
 
-## Self-hosting the UI
+### Self-hosting the UI
 
 Each release attaches `buildprof-ui-v<version>.tar.zst`, the complete UI as
 static files. Serve its contents from any web server and point the CLI at it:
@@ -230,22 +263,6 @@ static files. Serve its contents from any web server and point the CLI at it:
 ```bash
 buildprof open --url https://ui.example.internal/v0.2.0 clean-build.buildprof
 ```
-
-## Platform support
-
-**Recording builds is currently supported on Linux only.** Install Buildprof
-on the Linux machine that runs your build.
-
-Existing recordings can be viewed on other platforms in the
-[web UI](https://buildprof.lalitm.com), without installing Buildprof. Viewing a
-recording does not require the same operating system it was recorded on.
-
-## Requirements
-
-- Linux with a kernel or container configuration that permits tracing child
-  processes: Docker needs `--cap-add SYS_PTRACE`, `kernel.yama.ptrace_scope`
-  must be below 3, and gVisor-style sandboxes cannot trace at all
-- Rust 1.91 or newer when installing from source
 
 ## Development
 
