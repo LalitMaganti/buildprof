@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-11
+
 ### Added
 
 - Messages are coloured when they go to a terminal: errors red, hints yellow,
