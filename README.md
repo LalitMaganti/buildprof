@@ -28,11 +28,11 @@ Any build system works; see [Build systems](#build-systems).
 itself. Your browser fetches the recording from localhost and processes it
 entirely in the page; no trace data leaves your machine.
 
-Chrome asks once whether buildprof.lalitm.com may access other apps and
+The browser asks once whether buildprof.lalitm.com may access other apps and
 services on this device. Allow it: that permission is what lets the page fetch
 the recording from localhost. If you block it, the trace never loads; allow it
-again under "Local network access" in the site settings next to the address
-bar.
+again in the site settings next to the address bar, under "Apps on device" in
+Chrome or "Access this device" in Firefox.
 
 To see the result without installing anything, open the pre-recorded
 [ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)

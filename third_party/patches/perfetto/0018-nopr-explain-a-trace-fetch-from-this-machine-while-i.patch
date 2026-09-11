@@ -1,0 +1,217 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lalit Maganti <lalitmaganti@gmail.com>
+Date: Fri, 11 Sep 2026 13:22:43 +0100
+Subject: nopr: explain a trace fetch from this machine while it waits and when
+ it fails
+
+---
+ ui/src/base/http_utils.ts          |   9 +++
+ ui/src/core/load_trace.ts          |  13 ++-
+ ui/src/core/local_trace_dialogs.ts | 123 +++++++++++++++++++++++++++++
+ ui/src/frontend/error_dialog.ts    |   7 ++
+ 4 files changed, 150 insertions(+), 2 deletions(-)
+ create mode 100644 ui/src/core/local_trace_dialogs.ts
+
+diff --git a/ui/src/base/http_utils.ts b/ui/src/base/http_utils.ts
+index e616d573..c3c52401 100644
+--- a/ui/src/base/http_utils.ts
++++ b/ui/src/base/http_utils.ts
+@@ -87,3 +87,12 @@ export function getServingRoot() {
+   root = root.substring(0, root.lastIndexOf('/') + 1);
+   return root;
+ }
++
++export function isLoopbackUrl(url: string): boolean {
++  try {
++    const host = new URL(url).hostname;
++    return host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
++  } catch {
++    return false;
++  }
++}
+diff --git a/ui/src/core/load_trace.ts b/ui/src/core/load_trace.ts
+index e21e8508..d7c5158b 100644
+--- a/ui/src/core/load_trace.ts
++++ b/ui/src/core/load_trace.ts
+@@ -13,6 +13,8 @@
+ // limitations under the License.
+ 
+ import {ensureExists, assertTrue} from '../base/assert';
++import {isLoopbackUrl} from '../base/http_utils';
++import {withLocalTraceFetchDialog} from './local_trace_dialogs';
+ import {type time, Time, TimeSpan} from '../base/time';
+ import {cacheTrace} from './cache_manager';
+ import {
+@@ -216,9 +218,16 @@ async function loadTraceIntoEngine(
+   // trace_processor_shell). In this case we don't want the UI to load any
+   // file/stream and we just want to jump to the loading phase.
+   if (traceStream !== undefined) {
++    const localUrl =
++      traceSource.type === 'URL' && isLoopbackUrl(traceSource.url)
++        ? traceSource.url
++        : undefined;
+     const tStart = performance.now();
+-    for (;;) {
+-      const res = await traceStream.readChunk();
++    for (let first = true; ; first = false) {
++      const res =
++        first && localUrl !== undefined
++          ? await withLocalTraceFetchDialog(localUrl, traceStream.readChunk())
++          : await traceStream.readChunk();
+       await engine.parse(res.data);
+       const elapsed = (performance.now() - tStart) / 1000;
+       let status = 'Loading trace ';
+diff --git a/ui/src/core/local_trace_dialogs.ts b/ui/src/core/local_trace_dialogs.ts
+new file mode 100644
+index 00000000..d5f88fb3
+--- /dev/null
++++ b/ui/src/core/local_trace_dialogs.ts
+@@ -0,0 +1,123 @@
++// Copyright (C) 2026 The Android Open Source Project
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//      http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++import m from 'mithril';
++import {Icons} from '../base/semantic_icons';
++import {Callout} from '../widgets/callout';
++import {CodeSnippet} from '../widgets/code_snippet';
++import {Intent} from '../widgets/common';
++import {closeModal, showModal} from '../widgets/modal';
++
++// Dialogs for traces fetched from this machine, which is how the buildprof CLI
++// hands a trace to the UI. Chrome and Firefox gate those fetches behind a
++// permission prompted as "access other apps and services on this device": the
++// fetch hangs while the prompt is up, and once blocked it fails with a bare
++// "Failed to fetch". The site settings list it under different names.
++
++const PENDING_KEY = 'local_trace_fetch_pending';
++const PENDING_DELAY_MS = 500;
++
++const ALLOW_PROMPT_STEP =
++  'If Chrome asks to let this site "access other apps and services on this ' +
++  'device", allow it.';
++const SETTING_NAME = navigator.userAgent.includes('Firefox')
++  ? 'Access this device'
++  : 'Apps on device';
++const ALLOW_SETTING_STEP =
++  `Allow "${SETTING_NAME}" for this site in the site settings next to the ` +
++  'address bar.';
++const RETRY_STEP = 'Run buildprof open <TRACE> again.';
++
++function steps(...items: string[]): m.Children {
++  return m(
++    'div',
++    m('span.pf-error-dialog__list-label', 'What to do'),
++    m(
++      'ol.pf-error-dialog__list',
++      items.map((item) => m('li', item)),
++    ),
++  );
++}
++
++// Shows a dialog if the fetch of `url` is still pending after a short delay,
++// and closes it as soon as `fetching` settles. A fetch that Chrome already
++// allows completes well within the delay, so nothing flashes on screen.
++export async function withLocalTraceFetchDialog<T>(
++  url: string,
++  fetching: Promise<T>,
++): Promise<T> {
++  const timer = setTimeout(() => {
++    showModal({
++      key: PENDING_KEY,
++      title: 'Waiting for the trace from this machine',
++      content: () =>
++        m(
++          '.pf-error-dialog',
++          m(
++            Callout,
++            {icon: Icons.Info},
++            `This page is fetching the trace from ${url}, which the ` +
++              'buildprof command on this machine is serving.',
++          ),
++          steps(ALLOW_PROMPT_STEP),
++        ),
++    });
++  }, PENDING_DELAY_MS);
++  try {
++    return await fetching;
++  } finally {
++    clearTimeout(timer);
++    closeModal(PENDING_KEY);
++  }
++}
++
++async function appsOnDeviceDenied(): Promise<boolean> {
++  try {
++    const name = 'local-network-access' as PermissionName;
++    return (await navigator.permissions.query({name})).state === 'denied';
++  } catch {
++    return false;
++  }
++}
++
++export async function showLocalTraceFetchError(url: string, details: string) {
++  const denied = await appsOnDeviceDenied();
++  showModal({
++    title: denied
++      ? 'Chrome is blocking access to this machine'
++      : 'Could not fetch the trace from this machine',
++    content: () =>
++      m(
++        '.pf-error-dialog',
++        m(
++          Callout,
++          {icon: Icons.Warning, intent: Intent.Warning},
++          denied
++            ? `This site was denied the "${SETTING_NAME}" permission, which ` +
++                `is what lets the page fetch the trace from ${url}.`
++            : `Nothing answered at ${url}. The buildprof command serving ` +
++                'the trace may have stopped waiting, or Chrome may be ' +
++                'blocking this site from reaching this machine.',
++        ),
++        denied
++          ? steps(ALLOW_SETTING_STEP, RETRY_STEP)
++          : steps(RETRY_STEP, ALLOW_PROMPT_STEP, ALLOW_SETTING_STEP),
++        m(CodeSnippet, {
++          text: details,
++          language: 'Error details',
++          class: 'pf-error-dialog__code',
++        }),
++      ),
++  });
++}
+diff --git a/ui/src/frontend/error_dialog.ts b/ui/src/frontend/error_dialog.ts
+index eade8c02..29330940 100644
+--- a/ui/src/frontend/error_dialog.ts
++++ b/ui/src/frontend/error_dialog.ts
+@@ -29,6 +29,8 @@ import {Callout} from '../widgets/callout';
+ import {CodeSnippet} from '../widgets/code_snippet';
+ import {Icons} from '../base/semantic_icons';
+ import {mapStackTraceWithMinifiedSourceMap} from '../base/source_map_utils';
++import {isLoopbackUrl} from '../base/http_utils';
++import {showLocalTraceFetchError} from '../core/local_trace_dialogs';
+ 
+ const MODAL_KEY = 'crash_modal';
+ 
+@@ -489,6 +491,11 @@ class TraceParseErrorComponent implements m.ClassComponent<TraceParseErrorAttrs>
+ 
+ function showTraceFetchError(message: string) {
+   const details = message.replace(/\s*\(ERR:trace_fetch\)/g, '').trim();
++  const url = details.match(/^Could not fetch the trace at (\S+):/)?.[1];
++  if (url !== undefined && isLoopbackUrl(url)) {
++    showLocalTraceFetchError(url, details);
++    return;
++  }
+   showModal({
+     title: 'Could not fetch the trace',
+     content: () =>

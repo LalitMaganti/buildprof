@@ -160,7 +160,7 @@ fn open_in_ui(source: &Source, ui_url: &str, handoff: Handoff, wait: Wait) -> Ex
     }
     let site = site_origin(ui_url);
     eprintln!(
-        "buildprof: if Chrome asks whether {site} may access other apps and services on this \
+        "buildprof: if Chrome asks to let {site} access other apps and services on this \
          device, allow it; that is the page fetching the trace from this machine"
     );
     match serve_trace_once(&listener, &trace, wait.map(|wait| Instant::now() + wait)) {
@@ -174,8 +174,8 @@ fn open_in_ui(source: &Source, ui_url: &str, handoff: Handoff, wait: Wait) -> Ex
                 trace.display()
             );
             eprintln!(
-                "buildprof: if you blocked that for {site}, allow it again under Local network \
-                 access in Chrome's site settings first"
+                "buildprof: if you blocked that for {site}, allow it again in the site settings \
+                 first: \"Apps on device\" in Chrome, \"Access this device\" in Firefox"
             );
             ExitCode::FAILURE
         }
