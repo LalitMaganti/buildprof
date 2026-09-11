@@ -1,52 +1,86 @@
-# Buildprof
+<div align="center">
 
-Buildprof shows where the time went in a software build. It traces every
-process a Linux build launches and turns the recording into an interactive
-timeline you can explore in the browser.
+<h1><a href="https://buildprof.lalitm.com">Buildprof</a></h1>
 
-It works below any individual build system, so the same view can include Cargo
-crates, Ninja jobs, compiler and linker invocations, shell scripts, code
-generators, file access, and arbitrary tools launched along the way.
+<p><strong>See where the time went in your build.</strong></p>
+
+<p>
+  <a href="https://crates.io/crates/buildprof"><img alt="Crates.io version" src="https://img.shields.io/crates/v/buildprof?style=for-the-badge"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge"></a>
+  <a href="https://github.com/LalitMaganti/buildprof/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/LalitMaganti/buildprof/ci.yml?branch=main&style=for-the-badge"></a>
+</p>
+
+<p>
+  <a href="#quick-start">Quick start</a> ·
+  <a href="https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof">Try the demo</a> ·
+  <a href="docs/investigating-builds.md">Investigation guide</a> ·
+  <a href="#install">Install</a>
+</p>
+
+</div>
+
+## What is Buildprof?
+
+Buildprof traces every process a Linux build launches and turns the recording
+into an interactive timeline you can explore in the browser. Put `buildprof --`
+in front of your build command to get started.
+
+- **See the whole build.** Find expensive commands, gaps in parallelism, and
+  work that starts unexpectedly late across Make, Ninja, CMake, Meson, Cargo,
+  Go, and shell scripts.
+- **Follow the files.** Inspect commands, working directories, and exit statuses,
+  then follow inputs back to the processes that produced them.
+- **Look inside compilers.** Optionally add internal timing data from Clang,
+  LLD, and nightly Rust alongside the process timeline.
+
+Recording requires Linux. You can explore recordings on any platform in the
+[web UI](https://buildprof.lalitm.com); trace data stays in your browser.
+
+## Try it in your browser
+
+Explore a [clean ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
+without installing anything. Click the screenshot to open the recording, or
+follow the [guided tour](docs/ripgrep-tutorial.md).
+
+[![A clean ripgrep release build in Buildprof, with the final rustc rg compile selected](docs/assets/ripgrep-release-clean.png)](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
 
 ## Quick start
 
-On the Linux machine that runs the build, put `buildprof --` in front of your
-build command:<sup>*</sup>
+### 1. Install Buildprof
+
+On the Linux machine that runs your build:
 
 ```bash
-# Or Homebrew, mise, packages: see Install below.
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
+```
 
+Prefer a package manager? See [Install](#install) for Homebrew, mise, Cargo,
+and Linux packages.
+
+### 2. Record a build
+
+In your project directory, put `buildprof --` in front of your usual build
+command:
+
+```bash
 buildprof -- make -j8
 ```
+
+Replace `make -j8` with your build command, such as `cargo build` or
+`ninja -C out`. Bazel, Gradle, Buck2, and other build systems with a daemon
+need a [slightly different command](#daemon-build-systems).
+
+### 3. Explore the recording
 
 When the build finishes, the recording is saved as `output.buildprof` and
 opens in your browser. Allow the one-time prompt to access other apps and
 services on this device: that is the page fetching the recording from
 localhost. Nothing is ever uploaded.
 
-To see the result without installing anything, open the pre-recorded
-[ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
-in the browser:
-
-![A clean ripgrep release build in Buildprof, with the final rustc rg compile selected](docs/assets/ripgrep-release-clean.png)
-
-<sup>*</sup> *Bazel, Gradle, Buck2, and other build systems with a daemon need
-a slightly different command; see [Daemon build systems](#daemon-build-systems).*
-
-## Investigating a slow build
-
-The [investigation guide](docs/investigating-builds.md) walks through a
-recording step by step:
-
-- find where the time goes and which commands are the expensive ones;
-- spot low parallelism and long runs of many small commands;
-- follow inputs back to the processes that produced them;
-- look inside a compiler or linker invocation with compiler traces; and
-- check whether a change actually helped.
-
-For a worked example, follow the [guided tour](docs/ripgrep-tutorial.md) of
-the ripgrep recording above.
+Start with the longest commands and gaps in parallelism. The
+[investigation guide](docs/investigating-builds.md) walks through finding
+bottlenecks, following file dependencies, and checking whether a change helped.
+For builds over SSH, see [Builds on a remote machine](#builds-on-a-remote-machine).
 
 ## Why use Buildprof?
 
@@ -55,16 +89,10 @@ timings cannot break down an arbitrary `build.rs` script; Ninja cannot see
 inside commands it launches; compiler traces describe one compiler invocation
 rather than the build around it.
 
-Buildprof follows the complete process tree instead. It lets you:
-
-- see where wall-clock time went across the whole build;
-- spot work which ran serially, overlapped, or started unexpectedly late;
-- inspect full commands, working directories, lifetimes, and exit statuses;
-- follow files from the process which produced them to processes which read
-  them;
-- use the same profiler with Make, Ninja, CMake, Meson, Cargo, Go, or wrapper
-  scripts; and
-- optionally add compiler-internal phases from Clang, LLD, and nightly Rust.
+Buildprof follows the complete process tree, so the same view includes the
+build system, compilers, linkers, code generators, and arbitrary tools launched
+along the way. You can see how their work fits together and where the build
+spends its time.
 
 ## Install
 
