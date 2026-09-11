@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use std::ffi::OsString;
 use std::io::IsTerminal;
 use std::path::PathBuf;

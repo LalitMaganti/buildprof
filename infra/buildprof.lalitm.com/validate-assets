@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
 # Sanity-check an assembled site tree before it is handed to Cloudflare Pages.
 set -euo pipefail
 

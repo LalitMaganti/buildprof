@@ -1,3 +1,6 @@
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
 FROM ubuntu:24.04
 
 ARG RUST_VERSION=1.91

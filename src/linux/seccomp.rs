@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Seccomp filter used to turn selected filesystem calls into ptrace events.
 
 use std::io;

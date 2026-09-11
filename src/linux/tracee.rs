@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Read process metadata and memory while a tracee is stopped.
 
 use super::ptrace;

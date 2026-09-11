@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Getting a trace into the browser: served once over loopback for the
 //! hosted UI to fetch, launched here or spelled out for an SSH reader.
 

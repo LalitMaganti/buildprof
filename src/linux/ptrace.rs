@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Typed wrappers around the small part of the Linux ptrace ABI we use.
 
 use std::ffi::c_void;

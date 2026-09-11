@@ -1,3 +1,6 @@
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
 """Diff stable tool and artifact-flow summaries for supported build systems.
 
 Refresh expectations with:

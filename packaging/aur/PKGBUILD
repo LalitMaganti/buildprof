@@ -1,3 +1,6 @@
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
 # Maintainer: Lalit Maganti <lalitmaganti@gmail.com>
 # Prebuilt binaries from the GitHub release; `./update <version>` refreshes
 # pkgver and the checksums from the release's sha256.sum.

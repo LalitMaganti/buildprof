@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Messages for the person running buildprof, on stderr, with colour when
 //! that is a terminal. Prefixed lines can interleave with a build's output;
 //! the report printed afterwards stands on its own.

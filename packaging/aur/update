@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
 # Point the PKGBUILD at a release and fill in its checksums from sha256.sum.
 # Usage: ./update 0.2.0   (then makepkg --printsrcinfo > .SRCINFO and push)
 set -euo pipefail

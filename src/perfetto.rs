@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use crate::model::{FileOpen, Process, Rename, Segment};
 use proto::AttributeValue;
 use std::collections::HashMap;

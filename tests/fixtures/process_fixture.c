@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>

@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Handwritten Perfetto protobuf schema.
 //!
 //! The borrowed writer types encode only the public fields buildprof uses.

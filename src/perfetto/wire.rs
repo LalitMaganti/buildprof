@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Allocation-free protobuf wire encoder.
 
 use std::io::{self, Write};

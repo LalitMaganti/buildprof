@@ -1,3 +1,6 @@
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
 # nixpkgs derivation for Buildprof; submit to pkgs/by-name/bu/buildprof/.
 # Replace the two hashes with the values nix reports for the release.
 {

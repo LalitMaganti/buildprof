@@ -1,3 +1,6 @@
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
 """Compiler tracing follows the toolchain the build actually runs.
 
 Rust self-profile data needs a nightly compiler. The build decides which

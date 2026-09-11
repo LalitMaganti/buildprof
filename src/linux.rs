@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 use self::{ptrace::*, seccomp::*, tracee::*};
 use crate::compiler::Capture;
 use crate::model::{FileOpen, Process, Rename, Segment};

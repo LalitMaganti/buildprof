@@ -1,3 +1,6 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
 //! Best-effort compiler-internal trace capture.
 //!
 //! Compiler flags are added by private wrappers. This is opt-in and may change
