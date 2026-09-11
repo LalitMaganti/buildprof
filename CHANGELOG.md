@@ -7,6 +7,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-11
+
 ### Changed
 
 - The UI no longer probes localhost for a native Trace Processor when it
