@@ -10,25 +10,20 @@ generators, file access, and arbitrary tools launched along the way.
 
 ## Quick start
 
-On the Linux machine that runs the build:
+On the Linux machine that runs the build, put `buildprof --` in front of your
+build command (\*):
 
 ```bash
 # Or Homebrew, mise, packages: see Install below.
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
 
-# Your build command after --.
 buildprof -- make -j8
 ```
 
 When the build finishes, the recording is saved as `output.buildprof` and
-opens in your browser at [buildprof.lalitm.com](https://buildprof.lalitm.com).
-**Nothing is ever uploaded**: the page fetches the recording from localhost,
-which is why the browser asks once for permission to access other apps and
-services on this device. Allow it. See
-[Opening recordings](#opening-recordings) for details.
-
-Any build system works (\*). See [Build systems](#build-systems) for what is
-recorded.
+opens in your browser. Allow the one-time prompt to access other apps and
+services on this device: that is the page fetching the recording from
+localhost. Nothing is ever uploaded.
 
 To see the result without installing anything, open the pre-recorded
 [ripgrep release build](https://buildprof.lalitm.com/#!/?url=https://buildprof.lalitm.com/examples/ripgrep-release-clean.buildprof)
@@ -36,8 +31,22 @@ in the browser:
 
 ![A clean ripgrep release build opened in Buildprof](docs/assets/ripgrep-release-clean.png)
 
-(\*) Build systems that use a daemon, such as Bazel, Gradle, and Buck2, need to
-be run a little differently; see [Daemon build systems](#daemon-build-systems).
+(\*) Bazel, Gradle, Buck2, and other build systems with a daemon need a
+slightly different command; see [Daemon build systems](#daemon-build-systems).
+
+## Investigating a slow build
+
+The [investigation guide](docs/investigating-builds.md) walks through a
+recording step by step:
+
+- find where the time goes and which commands are the expensive ones;
+- spot low parallelism and long runs of many small commands;
+- follow inputs back to the processes that produced them;
+- look inside a compiler or linker invocation with compiler traces; and
+- check whether a change actually helped.
+
+For a worked example, follow the [guided tour](docs/ripgrep-tutorial.md) of
+the ripgrep recording above.
 
 ## Why use Buildprof?
 
@@ -117,45 +126,6 @@ or disable automatic opening when needed:
 buildprof -o clean-build.buildprof --no-open -- ninja -C out
 ```
 
-Process creation, commands, and timing are always recorded. File opens and
-renames are also recorded by default; to reduce overhead on builds with lots
-of filesystem activity, disable that layer:
-
-```bash
-buildprof --no-file-events -- make -j6
-```
-
-The process timeline remains available, but file lists and producer/consumer
-links are unavailable. This skips filesystem interception itself, rather than
-collecting and discarding events. The UI identifies recordings made this way.
-
-### Compiler details
-
-Process timing is usually the right level for understanding a build. When a
-particular compiler or linker invocation needs a closer look, enable compiler
-tracing:
-
-```bash
-buildprof --compiler-traces -- cargo build
-```
-
-Buildprof currently imports Clang `-ftime-trace`, explicitly selected LLD
-`--time-trace`, and nightly Rust self-profile data. These events appear as a
-summary of active compiler threads with expandable per-thread phase tracks.
-Compiler tracing can be combined with process-only recording:
-
-```bash
-buildprof --no-file-events --compiler-traces -- ninja -C build
-```
-
-A build which invokes Clang through an absolute path currently bypasses
-compiler tracing. Buildprof will still record the compiler process, but its
-Clang and LLD internal phases will be absent.
-
-Compiler tracing can also change compiler cache keys or turn cache hits into
-misses. Existing Rust compiler wrappers remain in the invocation chain, but
-cache preservation is not guaranteed in this mode.
-
 ### Opening recordings
 
 Open an existing recording later with:
@@ -194,10 +164,46 @@ forever. Alternatively, copy the recording to your own machine and open it
 in the [web UI](https://buildprof.lalitm.com). No local installation is needed
 for viewing.
 
-### Investigating a slow build
+### Collection options
 
-See the [investigation guide](docs/investigating-builds.md) to find expensive
-commands, follow their inputs, and inspect compiler phases.
+Process creation, commands, and timing are always recorded. File opens and
+renames are also recorded by default; to reduce overhead on builds with lots
+of filesystem activity, disable that layer:
+
+```bash
+buildprof --no-file-events -- make -j6
+```
+
+The process timeline remains available, but file lists and producer/consumer
+links are unavailable. This skips filesystem interception itself, rather than
+collecting and discarding events. The UI identifies recordings made this way.
+
+### Compiler details
+
+Process timing is usually the right level for understanding a build. When a
+particular compiler or linker invocation needs a closer look, enable compiler
+tracing:
+
+```bash
+buildprof --compiler-traces -- cargo build
+```
+
+Buildprof currently imports Clang `-ftime-trace`, explicitly selected LLD
+`--time-trace`, and nightly Rust self-profile data. These events appear as a
+summary of active compiler threads with expandable per-thread phase tracks.
+Compiler tracing can be combined with process-only recording:
+
+```bash
+buildprof --no-file-events --compiler-traces -- ninja -C build
+```
+
+A build which invokes Clang through an absolute path currently bypasses
+compiler tracing. Buildprof will still record the compiler process, but its
+Clang and LLD internal phases will be absent.
+
+Compiler tracing can also change compiler cache keys or turn cache hits into
+misses. Existing Rust compiler wrappers remain in the invocation chain, but
+cache preservation is not guaranteed in this mode.
 
 ## Build systems
 
