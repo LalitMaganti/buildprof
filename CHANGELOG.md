@@ -16,6 +16,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Changed
 
+- The one-request server that hands a trace to the browser is now built on
+  tiny_http instead of hand-written HTTP parsing.
 - While the UI waits for a trace from this machine, a dialog explains the
   browser prompt to access other apps and services on this device. The CLI,
   README, and error dialogs name the site setting that re-allows it: "Apps on

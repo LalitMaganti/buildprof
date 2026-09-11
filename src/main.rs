@@ -12,16 +12,15 @@ mod model;
 mod perfetto;
 
 use args::{Handoff, Source, Wait};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::process::ExitCode;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+use tiny_http::{Header, Method, Response, Server};
 
 /// Perfetto's UI allowlists this port for its own Trace Processor RPC, so it
 /// is the one place a browser may fetch a local trace from.
 const HANDOFF_PORT: u16 = 9001;
 const TRACE_URL: &str = "http://127.0.0.1:9001/trace";
-const ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(50);
-const REQUEST_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() -> ExitCode {
     #[cfg(target_os = "linux")]
@@ -163,7 +162,7 @@ fn open_in_ui(source: &Source, ui_url: &str, handoff: Handoff, wait: Wait) -> Ex
         "buildprof: if Chrome asks to let {site} access other apps and services on this \
          device, allow it; that is the page fetching the trace from this machine"
     );
-    match serve_trace_once(&listener, &trace, wait.map(|wait| Instant::now() + wait)) {
+    match serve_trace_once(listener, &trace, wait.map(|wait| Instant::now() + wait)) {
         Ok(()) => {
             eprintln!("buildprof: trace handed off to the browser");
             ExitCode::SUCCESS
@@ -268,84 +267,53 @@ fn hostname() -> Option<String> {
 }
 
 /// Blocks until a client connects, or until `deadline` passes.
-fn accept(listener: &TcpListener, deadline: Option<Instant>) -> std::io::Result<TcpStream> {
-    let Some(deadline) = deadline else {
-        return listener.accept().map(|(stream, _)| stream);
-    };
-    listener.set_nonblocking(true)?;
-    let stream = loop {
-        match listener.accept() {
-            Ok((stream, _)) => break stream,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                if Instant::now() >= deadline {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "no browser connected before the deadline",
-                    ));
-                }
-                std::thread::sleep(ACCEPT_POLL_INTERVAL);
-            }
-            Err(error) => return Err(error),
-        }
-    };
-    stream.set_nonblocking(false)?;
-    Ok(stream)
+fn header(name: &str, value: &str) -> Header {
+    Header::from_bytes(name, value).expect("constant header is well formed")
 }
 
+/// Answer requests until the trace has been sent once. The page at the UI
+/// origin fetches it cross-origin, so every reply allows any origin and the
+/// preflight is answered too.
 fn serve_trace_once(
-    listener: &TcpListener,
+    listener: TcpListener,
     trace: &std::path::Path,
     deadline: Option<Instant>,
 ) -> std::io::Result<()> {
-    use std::io::{Read, Write};
-    use std::net::Shutdown;
-
+    let server = Server::from_listener(listener, None).map_err(std::io::Error::other)?;
     loop {
-        let mut stream = accept(listener, deadline)?;
-        stream.set_read_timeout(Some(REQUEST_READ_TIMEOUT))?;
-        let mut request = [0_u8; 8192];
-        let mut length = 0;
-        let mut complete = false;
-        while length < request.len() && !complete {
-            let read = match stream.read(&mut request[length..]) {
-                Ok(read) => read,
-                // A stalled or broken client should not end the handoff.
-                Err(_) => break,
-            };
-            if read == 0 {
-                break;
+        let request = match deadline {
+            None => server.recv()?,
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                match server.recv_timeout(remaining)? {
+                    Some(request) => request,
+                    None => {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "no browser connected before the deadline",
+                        ));
+                    }
+                }
             }
-            length += read;
-            complete = request[..length].windows(4).any(|w| w == b"\r\n\r\n");
-        }
-        let request = String::from_utf8_lossy(&request[..length]);
-        let request_line = request.lines().next().unwrap_or_default();
-        let mut request_parts = request_line.split_whitespace();
-        let method = request_parts.next().unwrap_or_default();
-        let path = request_parts.next().unwrap_or_default();
-
-        if method == "OPTIONS" {
-            stream.write_all(
-                b"HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, OPTIONS\r\nConnection: close\r\n\r\n",
+        };
+        let allow_origin = header("Access-Control-Allow-Origin", "*");
+        if *request.method() == Method::Options {
+            request.respond(
+                Response::empty(204)
+                    .with_header(allow_origin)
+                    .with_header(header("Access-Control-Allow-Methods", "GET, OPTIONS")),
             )?;
             continue;
         }
-        if method != "GET" || path != "/trace" {
-            stream.write_all(
-                b"HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-            )?;
+        if *request.method() != Method::Get || request.url() != "/trace" {
+            request.respond(Response::empty(404).with_header(allow_origin))?;
             continue;
         }
-
-        let mut file = std::fs::File::open(trace)?;
-        let length = file.metadata()?.len();
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {length}\r\nAccess-Control-Allow-Origin: *\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
-        )?;
-        std::io::copy(&mut file, &mut stream)?;
-        stream.flush()?;
-        stream.shutdown(Shutdown::Write)?;
+        let response = Response::from_file(std::fs::File::open(trace)?)
+            .with_header(allow_origin)
+            .with_header(header("Content-Type", "application/octet-stream"))
+            .with_header(header("Cache-Control", "no-store"));
+        request.respond(response)?;
         return Ok(());
     }
 }
@@ -388,8 +356,8 @@ mod tests {
     fn trace_server_gives_up_at_the_deadline() {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let deadline = Instant::now() + Duration::from_millis(120);
-        let error = serve_trace_once(&listener, std::path::Path::new("unused"), Some(deadline))
-            .unwrap_err();
+        let error =
+            serve_trace_once(listener, std::path::Path::new("unused"), Some(deadline)).unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
         assert!(Instant::now() >= deadline);
     }
@@ -407,15 +375,17 @@ mod tests {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let address = listener.local_addr().unwrap();
         let server_trace = trace.clone();
-        let server = std::thread::spawn(move || serve_trace_once(&listener, &server_trace, None));
+        let server = std::thread::spawn(move || serve_trace_once(listener, &server_trace, None));
 
         let mut client = std::net::TcpStream::connect(address).unwrap();
         client
             .write_all(b"GET /trace HTTP/1.0\r\nHost: localhost\r\n\r\n")
             .unwrap();
+        // The process exits as soon as the handoff returns, so everything
+        // must already be on the wire by then.
+        server.join().unwrap().unwrap();
         let mut response = Vec::new();
         client.read_to_end(&mut response).unwrap();
-        server.join().unwrap().unwrap();
         std::fs::remove_file(trace).unwrap();
 
         let body_start = response
@@ -424,5 +394,48 @@ mod tests {
             .unwrap()
             + 4;
         assert_eq!(&response[body_start..], contents);
+        let head = String::from_utf8_lossy(&response[..body_start]);
+        assert!(head.starts_with("HTTP/1.0 200 OK\r\n") || head.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(head.contains("Access-Control-Allow-Origin: *\r\n"));
+        assert!(head.contains(&format!("Content-Length: {}\r\n", contents.len())));
+    }
+
+    #[test]
+    fn trace_server_answers_preflight_and_other_paths_without_finishing() {
+        let trace = std::env::temp_dir().join(format!(
+            "buildprof-open-preflight-test-{}",
+            std::process::id()
+        ));
+        std::fs::write(&trace, b"trace").unwrap();
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_trace = trace.clone();
+        let server = std::thread::spawn(move || serve_trace_once(listener, &server_trace, None));
+
+        let exchange = |request: &[u8]| {
+            let mut client = std::net::TcpStream::connect(address).unwrap();
+            client.write_all(request).unwrap();
+            let mut response = Vec::new();
+            client.read_to_end(&mut response).unwrap();
+            String::from_utf8_lossy(&response).into_owned()
+        };
+        let preflight =
+            exchange(b"OPTIONS /trace HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        assert!(preflight.starts_with("HTTP/1.1 204 "), "{preflight}");
+        assert!(preflight.contains("Access-Control-Allow-Origin: *\r\n"));
+        assert!(preflight.contains("Access-Control-Allow-Methods: GET, OPTIONS\r\n"));
+        let missing =
+            exchange(b"GET /other HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        assert!(missing.starts_with("HTTP/1.1 404 "), "{missing}");
+        assert!(
+            !server.is_finished(),
+            "the server gave up before serving the trace"
+        );
+
+        let served =
+            exchange(b"GET /trace HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+        assert!(served.ends_with("\r\n\r\ntrace"), "{served}");
+        server.join().unwrap().unwrap();
+        std::fs::remove_file(trace).unwrap();
     }
 }
