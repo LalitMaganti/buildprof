@@ -258,3 +258,19 @@ def dependency_edges(path: Path) -> list[Edge]:
                 if producer != consumer:
                     edges.append(Edge(producer, consumer, artifact))
     return sorted(edges, key=lambda e: (e.path, e.producer_pid, e.consumer_pid))
+
+
+def count_compiler_events(path: Path, backend: str) -> int:
+    """Compiler-internal phase events imported for one backend."""
+    processor = open_trace(path)
+    try:
+        rows = list(
+            processor.query(
+                "select count(*) as n from slice "
+                "where category = 'buildprof.compiler' "
+                f"and extract_arg(arg_set_id, 'debug.backend') = '{backend}'"
+            )
+        )
+        return int(rows[0].n)
+    finally:
+        processor.close()

@@ -7,6 +7,13 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Fixed
+
+- `--compiler-traces` now collects nightly Rust self-profile data whenever
+  the build runs a nightly compiler, including through `cargo +nightly` or a
+  `rust-toolchain` file. The nightly check used to look only at the default
+  toolchain at startup, so those recordings had no compiler tracks.
+
 ### Changed
 
 - While the UI waits for a trace from this machine, a dialog explains the

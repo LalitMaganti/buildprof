@@ -12,7 +12,8 @@ use std::collections::HashSet;
 use std::env;
 use std::ffi::{CString, OsStr, OsString};
 use std::fs::{self, File};
-use std::io::{self, BufReader};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::{self, BufReader, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt;
@@ -35,11 +36,13 @@ const CLANG_TRACE_PREFIX: &str = "clang";
 const LLD_TRACE_PREFIX: &str = "lld";
 const CLANG_TRACE_EXTENSION: &str = "json";
 const RUST_PROFILE_EXTENSION: &str = "mm_profdata";
+const RUST_NIGHTLY_CACHE_PREFIX: &str = "rustc-nightly";
 // Compiler activities are the user-facing phase timeline. Rust's query
 // provider stream is a separate expert-level dataset, not a finer sampling of
 // this one, and can be added later without changing what this trace means.
 const RUST_SELF_PROFILE_EVENTS: &str = "generic-activity";
 const RUST_INFORMATION_FLAGS: &[&str] = &["--version", "-V", "-vV", "--print"];
+const RUST_VERSION_FLAGS: &[&str] = &["--version", "-V", "-vV"];
 const RUST_PRINT_FLAG_PREFIX: &[u8] = b"--print=";
 const WRAPPER_DIRECTORY_NAME: &str = "bin";
 const MINIMUM_COMPILER_EVENT_NS: u64 = 1;
@@ -141,18 +144,6 @@ impl Capture {
     }
 
     fn prepare_rust(&mut self) -> io::Result<()> {
-        let rustc = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
-        let version = Command::new(&rustc).arg("--version").output();
-        let is_nightly = version
-            .ok()
-            .filter(|output| output.status.success())
-            .is_some_and(|output| {
-                let text = String::from_utf8_lossy(&output.stdout);
-                text.contains("nightly") || text.contains("-dev")
-            });
-        if !is_nightly {
-            return Ok(());
-        }
         let wrapper = self.wrapper_path(RUST_WRAPPER_KIND);
         symlink(env::current_exe()?, &wrapper)?;
         if let Some(existing) = env::var_os("RUSTC_WRAPPER") {
@@ -433,6 +424,70 @@ impl<'de> Visitor<'de> for ClangEventsVisitor<'_, '_> {
     }
 }
 
+/// Where a recording remembers whether `rustc` accepts `-Z` flags. The build
+/// decides which toolchain runs, through `cargo +nightly`, `RUSTUP_TOOLCHAIN`,
+/// or a `rust-toolchain` file, so the compiler is asked from the wrapper
+/// rather than at startup, and the answer is shared by every wrapper.
+fn nightly_cache_path(profile_dir: &Path, rustc: &OsStr) -> PathBuf {
+    let mut hasher = DefaultHasher::new();
+    rustc.hash(&mut hasher);
+    env::var_os("RUSTUP_TOOLCHAIN").hash(&mut hasher);
+    profile_dir.join(format!(
+        "{RUST_NIGHTLY_CACHE_PREFIX}-{:016x}",
+        hasher.finish()
+    ))
+}
+
+fn remember_nightly(cache: &Path, nightly: bool) {
+    let pending = cache.with_extension(std::process::id().to_string());
+    if fs::write(&pending, if nightly { b"1" } else { b"0" }).is_ok() {
+        let _ = fs::rename(pending, cache);
+    }
+}
+
+fn rustc_is_nightly(cache: &Path, rustc: &OsStr) -> bool {
+    if let Ok(cached) = fs::read(cache) {
+        return cached == b"1";
+    }
+    let nightly = Command::new(rustc)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .is_some_and(|output| rust_version_is_nightly(&output.stdout));
+    remember_nightly(cache, nightly);
+    nightly
+}
+
+/// Run a version query on the compiler's behalf and remember its answer.
+/// Cargo asks the compiler for its version before compiling anything, so
+/// under Cargo no compile ever has to ask again.
+fn relay_version_query(mut command: Command, cache: &Path) -> ExitCode {
+    let output = match command.output() {
+        Ok(output) => output,
+        Err(error) => {
+            eprintln!("buildprof: compiler wrapper failed: {error}");
+            return ExitCode::from(WRAPPER_FAILURE_EXIT_CODE);
+        }
+    };
+    let _ = io::stdout().write_all(&output.stdout);
+    let _ = io::stderr().write_all(&output.stderr);
+    if output.status.success() {
+        remember_nightly(cache, rust_version_is_nightly(&output.stdout));
+    }
+    let code = output
+        .status
+        .code()
+        .and_then(|code| u8::try_from(code).ok())
+        .unwrap_or(WRAPPER_FAILURE_EXIT_CODE);
+    ExitCode::from(code)
+}
+
+fn rust_version_is_nightly(version: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(version);
+    text.contains("nightly") || text.contains("-dev")
+}
+
 pub fn run_wrapper() -> Option<ExitCode> {
     let invoked_as = env::args_os()
         .next()
@@ -455,17 +510,25 @@ pub fn run_wrapper() -> Option<ExitCode> {
             let rustc = arguments.next()?;
             let mut command = if let Some(wrapper) = env::var_os(REAL_RUST_WRAPPER_ENV) {
                 let mut command = Command::new(wrapper);
-                command.arg(rustc);
+                command.arg(&rustc);
                 command
             } else {
-                Command::new(rustc)
+                Command::new(&rustc)
             };
-            let mut profile = true;
-            for argument in arguments {
-                profile &= !is_rust_information_argument(&argument);
-                command.arg(argument);
-            }
-            if profile {
+            let arguments: Vec<_> = arguments.collect();
+            command.args(&arguments);
+            let cache = nightly_cache_path(Path::new(&profile_dir), &rustc);
+            if arguments
+                .iter()
+                .any(|argument| is_rust_information_argument(argument))
+            {
+                let queries_version = arguments
+                    .iter()
+                    .any(|argument| RUST_VERSION_FLAGS.iter().any(|flag| argument == flag));
+                if queries_version && !cache.exists() {
+                    return Some(relay_version_query(command, &cache));
+                }
+            } else if rustc_is_nightly(&cache, &rustc) {
                 command.arg(format!(
                     "-Zself-profile={}",
                     Path::new(&profile_dir).display()
@@ -583,6 +646,20 @@ mod tests {
             rust_profile_pid(Path::new("compiler_fixture.mm_profdata")),
             None
         );
+    }
+
+    #[test]
+    fn recognizes_nightly_rust_versions() {
+        assert!(rust_version_is_nightly(
+            b"rustc 1.100.0-nightly (bff8e12ff 2026-08-26)\n"
+        ));
+        assert!(rust_version_is_nightly(b"rustc 1.101.0-dev\n"));
+        assert!(!rust_version_is_nightly(
+            b"rustc 1.98.0 (2c0f4e7a1 2026-07-30)\n"
+        ));
+        assert!(!rust_version_is_nightly(
+            b"rustc 1.99.0-beta.3 (abcdef123 2026-08-10)\n"
+        ));
     }
 
     #[test]

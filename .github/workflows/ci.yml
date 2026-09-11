@@ -37,6 +37,10 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
 
+      # Compiler tracing collects rustc self-profile data, which needs nightly.
+      - name: Install nightly Rust
+        run: rustup toolchain install nightly --profile minimal
+
       - name: Cache Cargo artifacts
         uses: Swatinem/rust-cache@v2
 

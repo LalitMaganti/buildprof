@@ -17,6 +17,7 @@ RUN apt-get update \
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
       | sh -s -- -y --profile minimal --default-toolchain "${RUST_VERSION}" \
     && rustup component add clippy rustfmt \
+    && rustup toolchain install nightly --profile minimal \
     && rustc --version \
     && cargo --version
 
