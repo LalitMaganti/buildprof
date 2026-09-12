@@ -33,3 +33,10 @@ third_party/src/
 
 # ccache directory the CI composite action places inside the checkout.
 /.ccache/
+
+# direnv state
+/.direnv/
+
+# Nix build outputs
+/result
+/result-*
