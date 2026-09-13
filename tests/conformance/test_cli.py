@@ -8,6 +8,8 @@ from pathlib import Path
 import subprocess
 import tomllib
 
+import pytest
+
 from .model import load_file_opens, load_perfetto, load_trace_attributes, load_renames
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -149,6 +151,43 @@ def test_file_opens_are_recorded_by_default(
     matching = [event for event in file_opens if event.path == str(opened)]
     assert matching
     assert all(event.fd >= 0 for event in matching)
+
+
+@pytest.mark.parametrize("file_events", [True, False])
+@pytest.mark.parametrize("flags,exists,exit_code", [
+    pytest.param(os.O_RDONLY, True, 0, id="read"),
+    pytest.param(os.O_WRONLY | os.O_CREAT | os.O_TRUNC, False, 0, id="create"),
+    pytest.param(os.O_RDONLY, False, 115, id="missing"),
+])
+def test_legacy_open_syscall(
+    buildprof: Path, process_fixture: Path, tmp_path: Path,
+    file_events: bool, flags: int, exists: bool, exit_code: int,
+):
+    opened = tmp_path / "legacy-open.txt"
+    if exists:
+        opened.write_text("input")
+    trace = tmp_path / "legacy-open.pftrace"
+    result = subprocess.run(
+        [str(buildprof), "--no-open", "-o", str(trace),
+         *([] if file_events else ["--no-file-events"]), "--",
+         str(process_fixture), "legacy-open", opened.name, str(flags)],
+        cwd=tmp_path, text=True, capture_output=True, timeout=10,
+    )
+    if result.returncode == 77:
+        pytest.skip("this architecture has no legacy open syscall")
+    assert result.returncode == exit_code, result.stderr
+    assert opened.exists() == (exit_code == 0)
+
+    events = load_file_opens(trace)
+    matching = [event for event in events if event.path == str(opened)]
+    if file_events and exit_code == 0:
+        assert len(matching) == 1
+        assert matching[0].flags == flags
+        assert matching[0].fd >= 0
+    else:
+        assert matching == []
+    if not file_events:
+        assert events == []
 
 
 def test_no_file_events_preserves_process_tree_and_exit_status(

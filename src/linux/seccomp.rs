@@ -50,10 +50,21 @@ fn traced_syscalls() -> Vec<libc::c_long> {
         libc::SYS_renameat,
         libc::SYS_renameat2,
     ];
-    // The two-argument syscall is architecture-specific.
+    // These older syscalls are absent on architectures such as aarch64.
+    // musl still uses open on x86_64, including inside Alpine containers.
     #[cfg(target_arch = "x86_64")]
-    syscalls.push(libc::SYS_rename);
+    syscalls.extend([libc::SYS_open, libc::SYS_rename]);
     syscalls
+}
+
+pub(super) fn is_bare_open(nr: libc::c_long) -> bool {
+    #[cfg(target_arch = "x86_64")]
+    return nr == libc::SYS_open;
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = nr;
+        false
+    }
 }
 
 pub(super) fn is_rename(nr: libc::c_long) -> bool {
