@@ -67,6 +67,44 @@ jobs:
       - name: Verify the crate packages
         run: cargo package --locked
 
+  action:
+    name: GitHub Action (${{ matrix.runner }})
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Record a successful command
+        id: success
+        uses: ./
+        with:
+          artifact-name: action-success-${{ matrix.runner }}
+          command: |
+            printf 'generated input' > input.txt
+            cp input.txt output.txt
+            cmp input.txt output.txt
+
+      - name: Record a failing command
+        id: failure
+        continue-on-error: true
+        uses: ./
+        with:
+          artifact-name: action-failure-${{ matrix.runner }}
+          command: exit 7
+
+      - name: Verify outcomes and uploads
+        env:
+          SUCCESS_URL: ${{ steps.success.outputs.artifact-url }}
+          FAILURE_URL: ${{ steps.failure.outputs.artifact-url }}
+          FAILURE_OUTCOME: ${{ steps.failure.outcome }}
+        run: |
+          test -n "$SUCCESS_URL"
+          test -n "$FAILURE_URL"
+          test "$FAILURE_OUTCOME" = failure
+
   ui:
     name: Perfetto UI build
     runs-on: ubuntu-24.04
