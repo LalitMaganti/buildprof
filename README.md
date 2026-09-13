@@ -162,7 +162,7 @@ On a Linux runner, install your build tools, then record the build:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: LalitMaganti/buildprof@c1c29c7359a3ccd8b9c9205fa01cc46a1de650f9 # Unreleased preview
+  - uses: LalitMaganti/buildprof@v0.2.6
     with:
       command: |
         cmake -S . -B build

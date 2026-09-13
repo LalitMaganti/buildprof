@@ -9,7 +9,7 @@ inputs:
     required: true
   version:
     description: Buildprof release tag to install.
-    default: v0.2.5
+    default: v0.2.6
   artifact-name:
     description: Unique name for this recording within the workflow run.
     default: buildprof-trace

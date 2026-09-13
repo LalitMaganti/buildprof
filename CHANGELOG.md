@@ -7,6 +7,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-09-13
+
+### Added
+
+- A GitHub Action that records builds, uploads traces, and adds elapsed time,
+  exit status, and a download link to the job summary, including failed builds.
+- A Nix flake with a package and development shell.
+- Conformance coverage for npm, Bazel, and Buck2 builds.
+
+### Fixed
+
+- Filesystem tracing now records legacy `open` syscalls on x86_64, including
+  those used by Alpine Linux builds inside containers.
+
 ## [0.2.5] - 2026-09-11
 
 ### Added
