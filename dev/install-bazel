@@ -15,7 +15,10 @@ case "$(uname -s)/$(uname -m)" in
         arch=arm64
         sha256=049dd21f40ad979db11c3ee68c96a42ce75f1185e69ac61ab20de1501427a410
         ;;
-    *) echo 'Bazel conformance requires x86-64 or ARM64 Linux' >&2; exit 1 ;;
+    *)
+        echo 'Bazel conformance requires x86-64 or ARM64 Linux' >&2
+        exit 1
+        ;;
 esac
 
 if [ "$#" -gt 1 ]; then
