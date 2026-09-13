@@ -1,0 +1,36 @@
+#!/bin/sh
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+# Install the same standalone Buck2 in CI and development containers.
+set -eu
+
+version=2026-09-01
+case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64)
+        arch=x86_64
+        sha256=5a034793023c722afc61707c86ee64f27c59dbf02864a640010d330876d76e08
+        ;;
+    Linux/aarch64)
+        arch=aarch64
+        sha256=94dccfc33f54f48826a0518e7db25c02b0edff7ad1dacf05ded986d040767152
+        ;;
+    *)
+        echo 'Buck2 conformance requires x86-64 or ARM64 Linux' >&2
+        exit 1
+        ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+    echo "usage: $0 [destination]" >&2
+    exit 2
+fi
+destination=${1:-/usr/local/bin/buck2}
+buck2_tmp=$(mktemp -d)
+trap 'rm -rf "$buck2_tmp"' EXIT
+curl --fail --location --silent --show-error --retry 3 \
+    "https://github.com/facebook/buck2/releases/download/$version/buck2-$arch-unknown-linux-musl.zst" \
+    -o "$buck2_tmp/buck2.zst"
+printf '%s  %s\n' "$sha256" "$buck2_tmp/buck2.zst" | sha256sum --check --status
+zstd --decompress --stdout "$buck2_tmp/buck2.zst" > "$buck2_tmp/buck2"
+install -m 755 "$buck2_tmp/buck2" "$destination"

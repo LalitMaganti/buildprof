@@ -30,10 +30,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gcc g++ libc6-dev make cmake ninja-build meson golang-go binutils llvm \
-            podman nodejs npm
+            podman nodejs npm zstd
 
       - name: Install Bazel
         run: sudo sh dev/install-bazel
+
+      - name: Install Buck2
+        run: sudo sh dev/install-buck2
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
