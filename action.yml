@@ -58,11 +58,13 @@ runs:
         BUILDPROF_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
       run: |
         {
-          echo '### Buildprof recording'
-          echo
-          echo "Build exit status: $BUILDPROF_STATUS"
-          echo "Elapsed time: ${BUILDPROF_ELAPSED}s"
-          echo
+          cat <<EOF
+        ### Buildprof recording
+
+        Build exit status: $BUILDPROF_STATUS
+        Elapsed time: ${BUILDPROF_ELAPSED}s
+
+        EOF
           if [[ -n "$BUILDPROF_ARTIFACT_URL" ]]; then
             echo "[Download recording]($BUILDPROF_ARTIFACT_URL) and open it at https://buildprof.lalitm.com."
           else

@@ -28,37 +28,28 @@ def replace_once(text: str, pattern: str, replacement: str) -> str:
 
 
 def prepare(root: Path, *, check: bool, allow_preview: bool) -> list[str]:
-    version = "v" + tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?", version):
-        raise ValueError("the action requires a semantic release version")
-
-    action = root / "action.yml"
+    package = tomllib.loads((root / "Cargo.toml").read_text())["package"]
+    version = "v" + package["version"]
     readme = root / "README.md"
-    originals = {path: path.read_text() for path in (action, readme)}
-    updated = {
-        action: replace_once(
-            originals[action],
-            r"(?<=    default: )v[^\n]+",
-            version,
-        ),
-        readme: replace_once(
-            originals[readme],
-            r"The action installs Buildprof `[^`]+` by default;",
-            f"The action installs Buildprof `{version}` by default;",
-        ),
-    }
     reference = version
     if (
         allow_preview
         and version == PREVIEW_VERSION
-        and f"{PREVIEW_REF} {PREVIEW_NOTE}" in originals[readme]
+        and f"{PREVIEW_REF} {PREVIEW_NOTE}" in readme.read_text()
     ):
         reference = f"{PREVIEW_REF} {PREVIEW_NOTE}"
-    updated[readme] = replace_once(
-        updated[readme],
-        r"  - uses: LalitMaganti/buildprof@[^\n]+",
-        f"  - uses: LalitMaganti/buildprof@{reference}",
-    )
+    replacements = {
+        root / "action.yml": (r"(?<=    default: )v[^\n]+", version),
+        readme: (
+            r"(?<=  - uses: LalitMaganti/buildprof@)[^\n]+",
+            reference,
+        ),
+    }
+    originals = {path: path.read_text() for path in replacements}
+    updated = {
+        path: replace_once(originals[path], pattern, replacement)
+        for path, (pattern, replacement) in replacements.items()
+    }
 
     stale = [
         str(path.relative_to(root))

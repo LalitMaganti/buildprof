@@ -31,8 +31,6 @@ def release_tree(tmp_path: Path) -> Path:
     (tmp_path / "README.md").write_text(dedent(f'''\
         steps:
           - uses: LalitMaganti/buildprof@{release["PREVIEW_REF"]} {release["PREVIEW_NOTE"]}
-
-        The action installs Buildprof `v0.2.5` by default;
     '''))
     return tmp_path
 
@@ -52,7 +50,6 @@ def test_prepare_next_release(release_tree: Path, version: str) -> None:
     assert f"    default: v{version}\n" in (release_tree / "action.yml").read_text()
     readme = (release_tree / "README.md").read_text()
     assert f"uses: LalitMaganti/buildprof@v{version}\n" in readme
-    assert f"The action installs Buildprof `v{version}` by default;" in readme
     assert release["PREVIEW_NOTE"] not in readme
     assert prepare(release_tree, check=True, allow_preview=False) == []
     assert prepare(release_tree, check=False, allow_preview=False) == []
@@ -68,7 +65,6 @@ def test_preview_is_not_releasable(release_tree: Path) -> None:
     [
         ("action.yml", "default: v0.2.5", "default: v0.1.0"),
         ("README.md", "@v0.2.5", "@v0.1.0"),
-        ("README.md", "`v0.2.5` by default", "`v0.1.0` by default"),
     ],
 )
 def test_check_detects_drift(

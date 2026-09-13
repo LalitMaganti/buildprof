@@ -59,24 +59,18 @@ Manual follow-ups:
 
 ## GitHub Action releases
 
-The root `action.yml` is released with the crate under the same `vX.Y.Z` tag.
-`just release-prepare` updates its recorder default and README example together;
-ordinary CI checks for drift, and `just release-check` plus the tag workflow
-require both to match `Cargo.toml`. Publish a new release to ship action fixes.
-Consumers can follow release tags with Dependabot, or pin the corresponding
-release SHA and let Dependabot propose SHA updates. The README example is
-updated during release preparation; Dependabot does not maintain that example.
+The action ships under the crate's `vX.Y.Z` tags. `just release-prepare`
+updates its recorder default and README example from `Cargo.toml`; CI and
+release checks catch drift. Keep release tags fixed. Consumers can use tags
+or release SHAs with Dependabot for upgrade PRs.
 
-Before the first release containing the action, ordinary CI permits the
-explicitly labeled preview example for v0.2.5. Release checks do not permit it.
-Remove the preview exception in `infra/prepare-action-release` after that release.
+Before the first action release, CI permits the labeled v0.2.5 preview;
+release checks reject it. Remove the preview exception in
+`infra/prepare-action-release` after that release.
 
-Pre-release action smoke tests use a published recorder, selected explicitly in
-`.github/workflows/ci.yml`, because the upcoming release's assets do not exist
-while its PR is being tested. The conformance suite also tests the recording
-script with the recorder built from source. After publishing, the
-`action-release.yml` smoke tests exercise the new tag with its default recorder on both Linux
-architectures. Keep release tags pointing at their original commits.
+PR smoke tests select a published recorder explicitly, since upcoming assets
+are unavailable. Conformance tests use the source build; `action-release.yml`
+tests the released action's default recorder on x86_64 and ARM64 after publication.
 
 ## The release workflow is hand-edited
 
@@ -93,8 +87,8 @@ cannot express are edited in by hand, and `allow-dirty = ["ci"]` in
 To upgrade dist: bump `cargo-dist-version`, run `dist generate` with
 `allow-dirty` temporarily removed, diff the result against the committed
 file, reapply the release metadata check and "Create GitHub Release" step,
-and run `actionlint` on the result. Keep the install commands in `infra/release-notes`, the README, and
-the homepage overlay in step.
+and run `actionlint` on the result. Keep the install commands in
+`infra/release-notes`, the README, and the homepage overlay in step.
 
 ## Compatibility rules
 

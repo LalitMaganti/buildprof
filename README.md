@@ -157,9 +157,7 @@ buildprof -o clean-build.buildprof --no-open -- ninja -C out
 
 ### Recording in GitHub Actions
 
-Use the action on a Linux runner to record a build, upload the recording as a
-workflow artifact, and add a download link, elapsed time, and exit status to
-the job summary:
+On a Linux runner, install your build tools, then record the build:
 
 ```yaml
 steps:
@@ -171,25 +169,11 @@ steps:
         cmake --build build -j2
 ```
 
-Install your build tools before this step. The command runs in Bash with
-`errexit` and `pipefail`; a failed build fails the step and still uploads any
-recording produced. Download the artifact and open its `.buildprof` file in
-[the web UI](https://buildprof.lalitm.com).
-
-The action installs Buildprof `v0.2.5` by default; set `version` to select
-another release tag. Recordings are retained for seven days by default
-(`retention-days`). Set a unique `artifact-name` for each invocation in a
-matrix or a job with multiple recordings. The `artifact-url` output contains
-the download link. The action is versioned with Buildprof releases. Use a
-released tag, or its full commit SHA with a version comment, and enable
-[Dependabot updates for GitHub Actions](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories#github-actions)
-to receive upgrade PRs. The `version` input selects the recorder release
-independently.
-
-The action supports x86_64 and aarch64 Linux runners on GitHub.com. The usual
-[recording requirements](#requirements) apply to self-hosted runners and
-container jobs. For daemon build systems, follow the guidance below so the
-build's worker processes run under the recorder.
+The job summary links to the recording artifact, including when the build
+fails. Download it and open it in [the web UI](https://buildprof.lalitm.com).
+See [action inputs](action.yml) for version and retention settings; use a
+unique `artifact-name` for each matrix entry. For upgrades, use release tags
+or release SHAs with Dependabot (see [action releases](RELEASING.md#github-action-releases)).
 
 ### Opening recordings
 

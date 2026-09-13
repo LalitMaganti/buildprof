@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
-import textwrap
+from textwrap import dedent
 
 import pytest
 
@@ -19,7 +19,7 @@ RECORD = ROOT / ".github/actions/record-build/record.sh"
     ("command", "status"),
     [
         (
-            textwrap.dedent("""\
+            dedent("""\
                 printf "generated input" > "input file"
                 cp "input file" "output file"
             """),
