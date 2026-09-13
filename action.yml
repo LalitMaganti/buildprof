@@ -1,5 +1,8 @@
-name: Buildprof
+name: Buildprof Build Profiler
 description: Record a Linux build, upload its trace, and add a job summary.
+branding:
+  icon: activity
+  color: blue
 inputs:
   command:
     description: Bash command to record, run from the workflow working directory.
