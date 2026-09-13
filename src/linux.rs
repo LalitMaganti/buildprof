@@ -281,14 +281,18 @@ impl Tracer<'_> {
             return call(SYSCALL, tid, 0, 0).map(|_| ());
         }
 
-        let path_address = seccomp.args[1] as usize;
-        let raw_path = read_c_string(tid, path_address, MAX_PATH_BYTES)
-            .unwrap_or_else(|_| "<unreadable path>".into());
-        let flags = if nr == libc::SYS_openat {
-            seccomp.args[2]
+        let (path_address, flags) = if is_bare_open(nr) {
+            (seccomp.args[0], seccomp.args[1])
+        } else if nr == libc::SYS_openat {
+            (seccomp.args[1], seccomp.args[2])
         } else {
-            read_u64(tid, seccomp.args[2] as usize).unwrap_or(0)
+            (
+                seccomp.args[1],
+                read_u64(tid, seccomp.args[2] as usize).unwrap_or(0),
+            )
         };
+        let raw_path = read_c_string(tid, path_address as usize, MAX_PATH_BYTES)
+            .unwrap_or_else(|_| "<unreadable path>".into());
         self.pending_opens.insert(
             tid,
             PendingOpen {

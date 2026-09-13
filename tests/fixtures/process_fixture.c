@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -61,6 +62,19 @@ int main(int argc, char **argv) {
         ssize_t count = read(fd, &byte, sizeof(byte));
         if (close(fd) != 0 || count < 0) return 116;
         return 0;
+    }
+
+    if (!strcmp(argv[1], "legacy-open")) {
+        if (argc != 4) return 64;
+#ifdef SYS_open
+        // Bypass libc: glibc's open() uses openat even on architectures where
+        // musl and other programs still use the legacy open syscall.
+        int fd = syscall(SYS_open, argv[2], atoi(argv[3]), 0600);
+        if (fd < 0) return 115;
+        return close(fd) == 0 ? 0 : 116;
+#else
+        return 77;
+#endif
     }
 
     if (!strcmp(argv[1], "output")) {
