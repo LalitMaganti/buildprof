@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+"""Synchronize the action and its documentation with the crate release version."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+ROOT = Path(__file__).resolve().parents[1]
+# No released tag contains the action yet. Ordinary CI can accept this preview;
+# release checks cannot. Remove this exception after the first action release.
+PREVIEW_VERSION = "v0.2.5"
+PREVIEW_REF = "c1c29c7359a3ccd8b9c9205fa01cc46a1de650f9"
+PREVIEW_NOTE = "# Unreleased preview"
+
+
+def replace_once(text: str, pattern: str, replacement: str) -> str:
+    updated, count = re.subn(pattern, lambda _: replacement, text, flags=re.MULTILINE)
+    if count != 1:
+        raise ValueError(f"expected one match for {pattern!r}, found {count}")
+    return updated
+
+
+def prepare(root: Path, *, check: bool, allow_preview: bool) -> list[str]:
+    package = tomllib.loads((root / "Cargo.toml").read_text())["package"]
+    version = "v" + package["version"]
+    readme = root / "README.md"
+    reference = version
+    if (
+        allow_preview
+        and version == PREVIEW_VERSION
+        and f"{PREVIEW_REF} {PREVIEW_NOTE}" in readme.read_text()
+    ):
+        reference = f"{PREVIEW_REF} {PREVIEW_NOTE}"
+    replacements = {
+        root / "action.yml": (r"(?<=    default: )v[^\n]+", version),
+        readme: (
+            r"(?<=  - uses: LalitMaganti/buildprof@)[^\n]+",
+            reference,
+        ),
+    }
+    originals = {path: path.read_text() for path in replacements}
+    updated = {
+        path: replace_once(originals[path], pattern, replacement)
+        for path, (pattern, replacement) in replacements.items()
+    }
+
+    stale = [
+        str(path.relative_to(root))
+        for path in originals
+        if originals[path] != updated[path]
+    ]
+    # Validate every replacement before writing either file.
+    if not check:
+        for path in originals:
+            if originals[path] != updated[path]:
+                path.write_text(updated[path])
+    return stale
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="report drift without editing files")
+    parser.add_argument(
+        "--allow-preview", action="store_true", help="allow the initial unreleased example in CI"
+    )
+    args = parser.parse_args()
+    if args.allow_preview and not args.check:
+        parser.error("--allow-preview is only valid with --check")
+    try:
+        stale = prepare(ROOT, check=args.check, allow_preview=args.allow_preview)
+    except (ValueError, KeyError) as error:
+        print(error, file=sys.stderr)
+        return 1
+    if args.check and stale:
+        print(
+            f"Action release metadata is stale: {', '.join(stale)}. "
+            "Run just release-prepare.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

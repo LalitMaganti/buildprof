@@ -155,6 +155,26 @@ or disable automatic opening when needed:
 buildprof -o clean-build.buildprof --no-open -- ninja -C out
 ```
 
+### Recording in GitHub Actions
+
+On a Linux runner, install your build tools, then record the build:
+
+```yaml
+steps:
+  - uses: actions/checkout@v7
+  - uses: LalitMaganti/buildprof@c1c29c7359a3ccd8b9c9205fa01cc46a1de650f9 # Unreleased preview
+    with:
+      command: |
+        cmake -S . -B build
+        cmake --build build -j2
+```
+
+The job summary links to the recording artifact, including when the build
+fails. Download it and open it in [the web UI](https://buildprof.lalitm.com).
+See [action inputs](action.yml) for version and retention settings; use a
+unique `artifact-name` for each matrix entry. For upgrades, use release tags
+or release SHAs with Dependabot (see [action releases](RELEASING.md#github-action-releases)).
+
 ### Opening recordings
 
 Open an existing recording later with:

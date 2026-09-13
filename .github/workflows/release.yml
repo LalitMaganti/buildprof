@@ -60,6 +60,16 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Install Python for release checks
+        if: github.event_name == 'push'
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Check action release metadata
+        if: github.event_name == 'push'
+        run: python3 infra/prepare-action-release --check
+
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0

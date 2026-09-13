@@ -64,8 +64,60 @@ jobs:
           BUILDPROF_REQUIRE_TOOLS: "1"
         run: uv run dev/in-container-test
 
+      - name: Check action release metadata
+        run: python3 infra/prepare-action-release --check --allow-preview
+
       - name: Verify the crate packages
         run: cargo package --locked
+
+  action:
+    name: GitHub Action (${{ matrix.runner }})
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+
+      - name: Check out zlib
+        uses: actions/checkout@v7
+        with:
+          repository: madler/zlib
+          ref: 51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf # v1.3.1
+          path: zlib
+          persist-credentials: false
+
+      - name: Record a zlib build and test run
+        id: success
+        uses: ./
+        with:
+          # Before publishing, the upcoming recorder assets are unavailable.
+          version: v0.2.5
+          artifact-name: action-success-${{ matrix.runner }}
+          command: |
+            cmake -S zlib -B zlib-build -DCMAKE_BUILD_TYPE=Release
+            cmake --build zlib-build --parallel 2
+            ctest --test-dir zlib-build --output-on-failure
+
+      - name: Record a failing command
+        id: failure
+        continue-on-error: true
+        uses: ./
+        with:
+          version: v0.2.5
+          artifact-name: action-failure-${{ matrix.runner }}
+          command: exit 7
+
+      - name: Verify outcomes and uploads
+        env:
+          SUCCESS_URL: ${{ steps.success.outputs.artifact-url }}
+          FAILURE_URL: ${{ steps.failure.outputs.artifact-url }}
+          FAILURE_OUTCOME: ${{ steps.failure.outcome }}
+        run: |
+          test -n "$SUCCESS_URL"
+          test -n "$FAILURE_URL"
+          test "$FAILURE_OUTCOME" = failure
 
   ui:
     name: Perfetto UI build

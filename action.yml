@@ -1,0 +1,73 @@
+name: Buildprof
+description: Record a Linux build, upload its trace, and add a job summary.
+inputs:
+  command:
+    description: Bash command to record, run from the workflow working directory.
+    required: true
+  version:
+    description: Buildprof release tag to install.
+    default: v0.2.5
+  artifact-name:
+    description: Unique name for this recording within the workflow run.
+    default: buildprof-trace
+  retention-days:
+    description: Number of days to retain the recording artifact.
+    default: '7'
+outputs:
+  artifact-url:
+    description: Download page for the recording artifact.
+    value: ${{ steps.upload.outputs.artifact-url }}
+runs:
+  using: composite
+  steps:
+    - name: Install Buildprof
+      id: install
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BUILDPROF_VERSION: ${{ inputs.version }}
+      run: bash "$ACTION_PATH/.github/actions/record-build/install.sh"
+
+    - name: Record build
+      id: record
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BUILDPROF_BINARY: ${{ steps.install.outputs.binary }}
+        BUILDPROF_TRACE: ${{ steps.install.outputs.trace }}
+        BUILDPROF_COMMAND: ${{ inputs.command }}
+      run: bash "$ACTION_PATH/.github/actions/record-build/record.sh"
+
+    - name: Upload recording
+      id: upload
+      if: ${{ !cancelled() && steps.record.outputs.trace != '' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ steps.record.outputs.trace }}
+        retention-days: ${{ inputs.retention-days }}
+        if-no-files-found: error
+        compression-level: '0'
+
+    - name: Summarize recording
+      if: ${{ !cancelled() && steps.record.outputs.status != '' }}
+      shell: bash
+      env:
+        BUILDPROF_STATUS: ${{ steps.record.outputs.status }}
+        BUILDPROF_ELAPSED: ${{ steps.record.outputs.elapsed }}
+        BUILDPROF_ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+      run: |
+        {
+          cat <<EOF
+        ### Buildprof recording
+
+        Build exit status: $BUILDPROF_STATUS
+        Elapsed time: ${BUILDPROF_ELAPSED}s
+
+        EOF
+          if [[ -n "$BUILDPROF_ARTIFACT_URL" ]]; then
+            echo "[Download recording]($BUILDPROF_ARTIFACT_URL) and open it at https://buildprof.lalitm.com."
+          else
+            echo 'No recording artifact was uploaded. See the step logs for details.'
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
