@@ -5,6 +5,8 @@
 mod report;
 
 mod args;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod blind_spots;
 #[cfg(target_os = "linux")]
 mod compiler;
 mod handoff;
@@ -100,7 +102,14 @@ fn record(
         return ExitCode::FAILURE;
     }
     let mut compilers = compiler::Capture::new(compiler_traces);
-    let result = linux::record(&command, &mut writer, &mut compilers, file_events);
+    let mut blind_spots = blind_spots::BlindSpots::default();
+    let result = linux::record(
+        &command,
+        &mut writer,
+        &mut compilers,
+        &mut blind_spots,
+        file_events,
+    );
     let write_result = writer.finish();
     let exit_code = match result {
         Ok(exit_code) => exit_code,
@@ -116,6 +125,7 @@ fn record(
         );
         return ExitCode::FAILURE;
     }
+    blind_spots.report();
     report::gap();
     match handoff {
         Some(handoff) => {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use self::{ptrace::*, seccomp::*, tracee::*};
+use crate::blind_spots::BlindSpots;
 use crate::compiler::Capture;
 use crate::model::{FileOpen, Process, Rename, Segment};
 use crate::perfetto::Writer;
@@ -28,6 +29,7 @@ pub fn record(
     command: &[OsString],
     writer: &mut Writer,
     compilers: &mut Capture,
+    blind_spots: &mut BlindSpots,
     file_events: bool,
 ) -> io::Result<u8> {
     let argv = make_argv(command)?;
@@ -83,6 +85,7 @@ pub fn record(
     let tracer = Tracer {
         writer,
         compilers,
+        blind_spots,
         clock,
         root_pid: child,
         root_exit_code: None,
@@ -134,6 +137,7 @@ struct PendingRename {
 struct Tracer<'writer> {
     writer: &'writer mut Writer,
     compilers: &'writer mut Capture,
+    blind_spots: &'writer mut BlindSpots,
     clock: Instant,
     root_pid: i32,
     root_exit_code: Option<u8>,
@@ -349,6 +353,7 @@ impl Tracer<'_> {
         let tgid = self.tasks.get(&tid).copied().unwrap_or(tid);
         let timestamp_ns = self.now_ns();
         let argv = read_command_line(tid).unwrap_or_else(|| vec![format!("pid:{tid}")]);
+        self.blind_spots.observe(&argv);
         let command = argv.join(" ");
         let name = argv
             .first()

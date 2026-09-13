@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import subprocess
 import tomllib
@@ -100,6 +101,40 @@ def test_stdout_and_stderr_pass_through(run_trace, process_fixture: Path):
     assert result.stdout == "fixture stdout\n"
     assert "fixture stderr\n" in result.stderr
     assert load_perfetto(trace)
+
+
+def test_programs_that_hide_work_point_at_troubleshooting(buildprof: Path, tmp_path: Path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name in ("docker", "gradlew"):
+        script = bin_dir / name
+        script.write_text("#!/bin/sh\nexit 0\n")
+        script.chmod(0o755)
+    environment = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", NO_COLOR="1")
+
+    def record(script: str) -> str:
+        result = subprocess.run(
+            [str(buildprof), "--no-open", "--", "sh", "-c", script],
+            cwd=tmp_path,
+            env=environment,
+            text=True,
+            capture_output=True,
+            timeout=10,
+        )
+        assert result.returncode == 0, result.stderr
+        return result.stderr
+
+    stderr = record("docker run image; docker ps; gradlew --no-daemon build")
+    assert stderr.count("ran during this build") == 1, stderr
+    assert (
+        "buildprof: docker ran during this build; "
+        "work inside its containers is not recorded"
+    ) in stderr
+    assert (
+        "buildprof: see https://buildprof.lalitm.com/diagnose/containers"
+    ) in stderr
+
+    assert "ran during this build" not in record("true")
 
 
 def test_file_opens_are_recorded_by_default(
