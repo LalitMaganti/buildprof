@@ -164,7 +164,7 @@ the job summary:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: LalitMaganti/buildprof@main
+  - uses: LalitMaganti/buildprof@c1c29c7359a3ccd8b9c9205fa01cc46a1de650f9
     with:
       command: |
         cmake -S . -B build
@@ -180,7 +180,9 @@ The action installs Buildprof `v0.2.5` by default; set `version` to select
 another release tag. Recordings are retained for seven days by default
 (`retention-days`). Set a unique `artifact-name` for each invocation in a
 matrix or a job with multiple recordings. The `artifact-url` output contains
-the download link. Use a commit SHA instead of `@main` to pin the action itself.
+the download link. The example pins the action to a full commit SHA; update
+that SHA deliberately when upgrading the action. The `version` input selects
+the recorder release independently.
 
 The action supports x86_64 and aarch64 Linux runners on GitHub.com. The usual
 [recording requirements](#requirements) apply to self-hosted runners and
