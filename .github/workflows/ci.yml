@@ -80,7 +80,15 @@ jobs:
       - name: Check out
         uses: actions/checkout@v7
 
-      - name: Record a successful command
+      - name: Check out zlib
+        uses: actions/checkout@v7
+        with:
+          repository: madler/zlib
+          ref: 51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf # v1.3.1
+          path: zlib
+          persist-credentials: false
+
+      - name: Record a zlib build and test run
         id: success
         uses: ./
         with:
@@ -88,9 +96,9 @@ jobs:
           version: v0.2.5
           artifact-name: action-success-${{ matrix.runner }}
           command: |
-            printf 'generated input' > input.txt
-            cp input.txt output.txt
-            cmp input.txt output.txt
+            cmake -S zlib -B zlib-build -DCMAKE_BUILD_TYPE=Release
+            cmake --build zlib-build --parallel 2
+            ctest --test-dir zlib-build --output-on-failure
 
       - name: Record a failing command
         id: failure

@@ -23,15 +23,23 @@ jobs:
       - name: Check action release metadata
         run: python3 infra/prepare-action-release --check
 
+      - name: Check out zlib
+        uses: actions/checkout@v7
+        with:
+          repository: madler/zlib
+          ref: 51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf # v1.3.1
+          path: zlib
+          persist-credentials: false
+
       - name: Record using the default recorder version
         id: record
         uses: ./
         with:
           artifact-name: released-action-${{ matrix.runner }}
           command: |
-            printf 'generated input' > input.txt
-            cp input.txt output.txt
-            cmp input.txt output.txt
+            cmake -S zlib -B zlib-build -DCMAKE_BUILD_TYPE=Release
+            cmake --build zlib-build --parallel 2
+            ctest --test-dir zlib-build --output-on-failure
 
       - name: Verify upload
         env:
