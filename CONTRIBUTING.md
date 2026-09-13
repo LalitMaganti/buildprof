@@ -8,8 +8,9 @@ welcome too.
 
 - `src/` is the recorder and CLI (Rust). Recording is Linux-only; the trace
   writer and `buildprof open` build everywhere.
-- `tests/conformance/` records real Make, CMake, Meson, Cargo, Go, npm, and Bazel
-  builds and checks the resulting traces with Perfetto's Trace Processor.
+- `tests/conformance/` records real Make, CMake, Meson, Cargo, Go, npm, Bazel,
+  and Buck2 builds and checks the resulting traces with Perfetto's Trace
+  Processor.
 - `third_party/` pins Perfetto and holds Buildprof's UI as a patch series plus
   permanent overlay files; `tools/perfetto` manages the checkout.
 - `infra/` and `.github/` deploy the UI and cut releases; `packaging/` holds
@@ -18,8 +19,8 @@ welcome too.
 ## Building and testing the recorder
 
 Any Linux machine with Rust 1.91 and the build systems the suite covers
-(`gcc`, `make`, `cmake`, `ninja`, `meson`, `go`, `node`, `npm`, `bazel`) can run
-everything:
+(`gcc`, `make`, `cmake`, `ninja`, `meson`, `go`, `node`, `npm`, `bazel`, `buck2`)
+can run everything:
 
 ```bash
 uv run dev/in-container-test           # fmt, clippy, unit tests, conformance
@@ -34,6 +35,11 @@ Install the pinned Bazel used by CI and the development container on x86-64
 or ARM64 Linux with `sudo sh dev/install-bazel`. Its standalone binary includes
 the JDK. The Bazel test uses a fresh output root and batch mode, so it does not
 reuse or stop your existing build server.
+
+Install the pinned Buck2 with `sudo sh dev/install-buck2` (requires `curl` and
+`zstd`). The installer uses standalone musl binaries for x86-64 and ARM64 Linux.
+The Buck2 test starts and stops its own daemon in a fresh project and isolation
+directory, so it does not reuse or stop your existing build server.
 
 CI runs the conformance suite on every pull request and fails, rather than
 skips, when a build system is missing.

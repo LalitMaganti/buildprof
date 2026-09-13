@@ -14,11 +14,14 @@ ENV PATH=/opt/uv/bin:/opt/buildprof-venv/bin:/opt/cargo/bin:${PATH}
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates curl gcc g++ libc6-dev python3 python3-venv git \
-       make cmake ninja-build meson golang-go binutils llvm podman nodejs npm \
+       make cmake ninja-build meson golang-go binutils llvm podman nodejs npm zstd \
     && rm -rf /var/lib/apt/lists/*
 
 COPY dev/install-bazel /tmp/install-bazel
 RUN sh /tmp/install-bazel && rm /tmp/install-bazel
+
+COPY dev/install-buck2 /tmp/install-buck2
+RUN sh /tmp/install-buck2 && rm /tmp/install-buck2
 
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
       | sh -s -- -y --profile minimal --default-toolchain "${RUST_VERSION}" \
