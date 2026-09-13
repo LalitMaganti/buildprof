@@ -8,7 +8,7 @@ welcome too.
 
 - `src/` is the recorder and CLI (Rust). Recording is Linux-only; the trace
   writer and `buildprof open` build everywhere.
-- `tests/conformance/` records real Make, CMake, Meson, Cargo, and Go builds
+- `tests/conformance/` records real Make, CMake, Meson, Cargo, Go, and npm builds
   and checks the resulting traces with Perfetto's Trace Processor.
 - `third_party/` pins Perfetto and holds Buildprof's UI as a patch series plus
   permanent overlay files; `tools/perfetto` manages the checkout.
@@ -18,7 +18,7 @@ welcome too.
 ## Building and testing the recorder
 
 Any Linux machine with Rust 1.91 and the build systems the suite covers
-(`gcc`, `make`, `cmake`, `ninja`, `meson`, `go`) can run everything:
+(`gcc`, `make`, `cmake`, `ninja`, `meson`, `go`, `node`, `npm`) can run everything:
 
 ```bash
 uv run dev/in-container-test           # fmt, clippy, unit tests, conformance

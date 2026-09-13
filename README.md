@@ -245,6 +245,7 @@ build system. These are exercised by the conformance suite on every change:
 - **Cargo**: `rustc` invocations and linking; nightly self-profile data with
   `--compiler-traces`.
 - **Go**: compile, assemble, and link.
+- **npm**: offline build scripts, generated JavaScript, and renamed outputs.
 
 Anything else that runs as a child process is recorded the same way: shell
 scripts, code generators, wrapper scripts, and tools launched by the build.

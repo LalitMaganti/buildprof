@@ -14,7 +14,7 @@ ENV PATH=/opt/uv/bin:/opt/buildprof-venv/bin:/opt/cargo/bin:${PATH}
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates curl gcc g++ libc6-dev python3 python3-venv git \
-       make cmake ninja-build meson golang-go binutils llvm podman \
+       make cmake ninja-build meson golang-go binutils llvm podman nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
