@@ -10,6 +10,7 @@ Refresh expectations with:
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -17,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from .model import dependency_edges, load_perfetto
+from .model import dependency_edges, load_perfetto, load_renames
 
 EXPECTED = Path(__file__).resolve().parent / "expected"
 
@@ -87,6 +88,30 @@ def _cargo_project(root: Path) -> list[str]:
         "[dependencies]\n"
     )
     return ["cargo", "build", "--offline"]
+
+
+def _npm_project(root: Path) -> list[str]:
+    # No registry dependencies: exercise npm's script runner and a real
+    # producer/consumer edge between separate Node processes entirely offline.
+    (root / "package.json").write_text(
+        json.dumps({
+            "name": "buildprof-conformance",
+            "version": "1.0.0",
+            "private": True,
+            "scripts": {"build": "node generate.js && node bundle.js"},
+        })
+    )
+    (root / "input.js").write_text("module.exports = 3;\n")
+    (root / "generate.js").write_text(
+        "const fs = require('node:fs');\n"
+        "fs.writeFileSync('generated.js', fs.readFileSync('input.js'));\n"
+    )
+    (root / "bundle.js").write_text(
+        "const fs = require('node:fs');\n"
+        "fs.writeFileSync('bundle.js.tmp', fs.readFileSync('generated.js'));\n"
+        "fs.renameSync('bundle.js.tmp', 'output.js');\n"
+    )
+    return ["npm", "--offline", "--script-shell=sh", "run", "build"]
 
 
 def _go_project(root: Path) -> list[str]:
@@ -213,4 +238,55 @@ def test_build_system(case, buildprof: Path, tmp_path: Path, request):
     assert actual == expectation.read_text(), (
         f"{case} summary changed.\n\n--- expected ---\n{expectation.read_text()}"
         f"\n--- actual ---\n{actual}"
+    )
+
+
+def test_npm_build(buildprof: Path, tmp_path: Path):
+    for tool in ("npm", "node"):
+        if shutil.which(tool) is None:
+            message = f"{tool} is not installed in this environment"
+            if os.environ.get("BUILDPROF_REQUIRE_TOOLS"):
+                pytest.fail(message)
+            pytest.skip(message)
+
+    command = _npm_project(tmp_path)
+    trace = tmp_path / "npm.pftrace"
+    result = subprocess.run(
+        [str(buildprof), "--no-open", "-o", str(trace), "--", *command],
+        cwd=tmp_path,
+        env=dict(os.environ, LC_ALL="C", npm_config_cache=str(tmp_path / ".npm")),
+        text=True,
+        capture_output=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "output.js").read_text() == (tmp_path / "input.js").read_text()
+    processes = load_perfetto(trace)
+
+    def script_pid(script: str) -> int:
+        matches = [
+            p.pid
+            for p in processes.values()
+            if any(
+                s.name == "node" and s.command.endswith(f" {script}")
+                for s in p.segments
+            )
+        ]
+        assert len(matches) == 1, f"expected one Node invocation for {script}: {matches}"
+        return matches[0]
+
+    producer = script_pid("generate.js")
+    consumer = script_pid("bundle.js")
+    assert producer != consumer
+    assert any(
+        edge.producer_pid == producer
+        and edge.consumer_pid == consumer
+        and edge.path == str(tmp_path / "generated.js")
+        for edge in dependency_edges(trace)
+    )
+    assert any(
+        rename.pid == consumer
+        and rename.from_path == str(tmp_path / "bundle.js.tmp")
+        and rename.to_path == str(tmp_path / "output.js")
+        for rename in load_renames(trace)
     )
