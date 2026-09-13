@@ -246,6 +246,7 @@ build system. These are exercised by the conformance suite on every change:
   `--compiler-traces`.
 - **Go**: compile, assemble, and link.
 - **npm**: offline build scripts, generated JavaScript, and renamed outputs.
+- **Bazel**: local actions and generated-file dependencies in batch mode.
 
 Anything else that runs as a child process is recorded the same way: shell
 scripts, code generators, wrapper scripts, and tools launched by the build.
