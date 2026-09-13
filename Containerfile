@@ -17,6 +17,9 @@ RUN apt-get update \
        make cmake ninja-build meson golang-go binutils llvm podman nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
+COPY dev/install-bazel /tmp/install-bazel
+RUN sh /tmp/install-bazel && rm /tmp/install-bazel
+
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs \
       | sh -s -- -y --profile minimal --default-toolchain "${RUST_VERSION}" \
     && rustup component add clippy rustfmt \

@@ -1,0 +1,35 @@
+#!/bin/sh
+# Copyright 2026 The Buildprof Authors.
+# SPDX-License-Identifier: Apache-2.0
+
+# Install the same standalone Bazel (including its JDK) in CI and containers.
+set -eu
+
+version=9.2.0
+case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64)
+        arch=x86_64
+        sha256=7668a95db1250f12c40407251e4e203b4ec8bf39bc495d2f485b2d8c99048694
+        ;;
+    Linux/aarch64)
+        arch=arm64
+        sha256=049dd21f40ad979db11c3ee68c96a42ce75f1185e69ac61ab20de1501427a410
+        ;;
+    *)
+        echo 'Bazel conformance requires x86-64 or ARM64 Linux' >&2
+        exit 1
+        ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+    echo "usage: $0 [destination]" >&2
+    exit 2
+fi
+destination=${1:-/usr/local/bin/bazel}
+bazel_tmp=$(mktemp -d)
+trap 'rm -rf "$bazel_tmp"' EXIT
+curl --fail --location --silent --show-error --retry 3 \
+    "https://github.com/bazelbuild/bazel/releases/download/$version/bazel-$version-linux-$arch" \
+    -o "$bazel_tmp/bazel"
+printf '%s  %s\n' "$sha256" "$bazel_tmp/bazel" | sha256sum --check --status
+install -m 755 "$bazel_tmp/bazel" "$destination"

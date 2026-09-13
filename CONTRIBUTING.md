@@ -8,8 +8,8 @@ welcome too.
 
 - `src/` is the recorder and CLI (Rust). Recording is Linux-only; the trace
   writer and `buildprof open` build everywhere.
-- `tests/conformance/` records real Make, CMake, Meson, Cargo, Go, and npm builds
-  and checks the resulting traces with Perfetto's Trace Processor.
+- `tests/conformance/` records real Make, CMake, Meson, Cargo, Go, npm, and Bazel
+  builds and checks the resulting traces with Perfetto's Trace Processor.
 - `third_party/` pins Perfetto and holds Buildprof's UI as a patch series plus
   permanent overlay files; `tools/perfetto` manages the checkout.
 - `infra/` and `.github/` deploy the UI and cut releases; `packaging/` holds
@@ -18,7 +18,8 @@ welcome too.
 ## Building and testing the recorder
 
 Any Linux machine with Rust 1.91 and the build systems the suite covers
-(`gcc`, `make`, `cmake`, `ninja`, `meson`, `go`, `node`, `npm`) can run everything:
+(`gcc`, `make`, `cmake`, `ninja`, `meson`, `go`, `node`, `npm`, `bazel`) can run
+everything:
 
 ```bash
 uv run dev/in-container-test           # fmt, clippy, unit tests, conformance
@@ -28,6 +29,11 @@ uv run dev/in-container-test tests/conformance/test_cli.py -k attributes
 On macOS, `just bootstrap` builds a Linux development container with the same
 toolchain and `just test` runs the suite inside it. `just release-check` runs
 the host-side checks that CI runs on macOS.
+
+Install the pinned Bazel used by CI and the development container on x86-64
+or ARM64 Linux with `sudo sh dev/install-bazel`. Its standalone binary includes
+the JDK. The Bazel test uses a fresh output root and batch mode, so it does not
+reuse or stop your existing build server.
 
 CI runs the conformance suite on every pull request and fails, rather than
 skips, when a build system is missing.

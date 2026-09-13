@@ -32,6 +32,9 @@ jobs:
             gcc g++ libc6-dev make cmake ninja-build meson golang-go binutils llvm \
             podman nodejs npm
 
+      - name: Install Bazel
+        run: sudo sh dev/install-bazel
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
