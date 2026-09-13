@@ -16,7 +16,7 @@ case "$(uname -m)" in
     exit 1
     ;;
 esac
-if [[ ! $BUILDPROF_VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! $BUILDPROF_VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
   echo 'version must be a release tag such as v0.2.5.' >&2
   exit 1
 fi

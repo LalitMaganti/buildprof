@@ -64,6 +64,9 @@ jobs:
           BUILDPROF_REQUIRE_TOOLS: "1"
         run: uv run dev/in-container-test
 
+      - name: Check action release metadata
+        run: python3 infra/prepare-action-release --check --allow-preview
+
       - name: Verify the crate packages
         run: cargo package --locked
 
@@ -81,6 +84,8 @@ jobs:
         id: success
         uses: ./
         with:
+          # Before publishing, the upcoming recorder assets are unavailable.
+          version: v0.2.5
           artifact-name: action-success-${{ matrix.runner }}
           command: |
             printf 'generated input' > input.txt
@@ -92,6 +97,7 @@ jobs:
         continue-on-error: true
         uses: ./
         with:
+          version: v0.2.5
           artifact-name: action-failure-${{ matrix.runner }}
           command: exit 7
 

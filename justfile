@@ -38,8 +38,13 @@ test *args:
 check:
     uv run dev/test --collect-only
 
+# Update the action default and README example after changing Cargo.toml's version.
+release-prepare:
+    python3 infra/prepare-action-release
+
 # Run the local checks required before packaging a release.
 release-check:
+    python3 infra/prepare-action-release --check
     cargo fmt --all -- --check
     cargo clippy --all-targets --locked -- -D warnings
     cargo test --all-targets --locked

@@ -1,0 +1,39 @@
+name: Released GitHub Action
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    name: Record with release defaults (${{ matrix.runner }})
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out the released action
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Check action release metadata
+        run: python3 infra/prepare-action-release --check
+
+      - name: Record using the default recorder version
+        id: record
+        uses: ./
+        with:
+          artifact-name: released-action-${{ matrix.runner }}
+          command: |
+            printf 'generated input' > input.txt
+            cp input.txt output.txt
+            cmp input.txt output.txt
+
+      - name: Verify upload
+        env:
+          ARTIFACT_URL: ${{ steps.record.outputs.artifact-url }}
+        run: test -n "$ARTIFACT_URL"
