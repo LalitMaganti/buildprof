@@ -5,20 +5,22 @@
 mod report;
 
 mod args;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 mod blind_spots;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod compiler;
 mod handoff;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 mod util;
-// The trace model and writer are portable; only recording is Linux-specific.
+// The trace model and writer are portable; only recording is platform-specific.
 // Building them everywhere keeps the writer's unit tests running on every
 // platform the viewer ships on.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 mod model;
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 mod perfetto;
 
 use args::{Handoff, Wait};
@@ -27,8 +29,13 @@ use std::io::IsTerminal;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // First, so a setuid helper does nothing else before it starts.
+    #[cfg(target_os = "macos")]
+    if let Some(code) = macos::helper::run_if_requested() {
+        return code;
+    }
     report::init();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     if let Some(code) = compiler::run_wrapper() {
         return code;
     }
@@ -77,7 +84,7 @@ fn list_examples() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn record(
     output: std::path::PathBuf,
     command: Vec<std::ffi::OsString>,
@@ -103,7 +110,16 @@ fn record(
     }
     let mut compilers = compiler::Capture::new(compiler_traces);
     let mut blind_spots = blind_spots::BlindSpots::default();
+    #[cfg(target_os = "linux")]
     let result = linux::record(
+        &command,
+        &mut writer,
+        &mut compilers,
+        &mut blind_spots,
+        file_events,
+    );
+    #[cfg(target_os = "macos")]
+    let result = macos::record(
         &command,
         &mut writer,
         &mut compilers,
@@ -146,7 +162,7 @@ fn record(
     ExitCode::from(exit_code)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn record(
     _output: std::path::PathBuf,
     _command: Vec<std::ffi::OsString>,
@@ -155,7 +171,7 @@ fn record(
     _handoff: Option<Handoff>,
     _wait: Wait,
 ) -> ExitCode {
-    error!("recording needs Linux; this build can only view traces");
+    error!("recording needs Linux or macOS; this build can only view traces");
     hint!(
         "record on a Linux machine, copy the trace here, and run {}",
         report::emph("buildprof open <TRACE>")
