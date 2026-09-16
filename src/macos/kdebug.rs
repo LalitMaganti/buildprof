@@ -58,6 +58,10 @@ impl Event {
         self.debugid & !3
     }
 
+    pub fn is_start(&self) -> bool {
+        self.debugid & 1 != 0
+    }
+
     pub fn is_end(&self) -> bool {
         self.debugid & 2 != 0
     }
@@ -282,7 +286,7 @@ mod tests {
         assert_eq!(event.args[0], 7);
         assert_eq!(event.thread, 99);
         assert_eq!(event.code(), 0x0401_0004);
-        assert!(event.is_end());
+        assert!(event.is_end() && !event.is_start());
     }
 
     #[test]

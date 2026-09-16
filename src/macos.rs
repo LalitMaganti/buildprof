@@ -72,6 +72,7 @@ pub fn record(
     command: &[OsString],
     writer: &mut Writer,
     blind_spots: &mut BlindSpots,
+    file_events: bool,
 ) -> io::Result<u8> {
     let Prepared {
         mut session,
@@ -90,7 +91,12 @@ pub fn record(
             )
         })?;
     let root_pid = build.id() as i32;
-    let mut collector = recon::Collector::new(root_pid, clock);
+    let mut collector = recon::Collector::new(
+        root_pid,
+        std::env::current_dir()?.to_string_lossy().into_owned(),
+        clock,
+        file_events,
+    );
     collector.seed_threads(threads);
 
     let mut sink = TraceSink { writer };
