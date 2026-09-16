@@ -30,17 +30,17 @@ def replace_once(text: str, pattern: str, replacement: str) -> str:
 def prepare(root: Path, *, check: bool, allow_preview: bool) -> list[str]:
     package = tomllib.loads((root / "Cargo.toml").read_text())["package"]
     version = "v" + package["version"]
-    readme = root / "README.md"
+    usage = root / "docs/usage.md"
     reference = version
     if (
         allow_preview
         and version == PREVIEW_VERSION
-        and f"{PREVIEW_REF} {PREVIEW_NOTE}" in readme.read_text()
+        and f"{PREVIEW_REF} {PREVIEW_NOTE}" in usage.read_text()
     ):
         reference = f"{PREVIEW_REF} {PREVIEW_NOTE}"
     replacements = {
         root / "action.yml": (r"(?<=    default: )v[^\n]+", version),
-        readme: (
+        usage: (
             r"(?<=  - uses: LalitMaganti/buildprof@)[^\n]+",
             reference,
         ),
