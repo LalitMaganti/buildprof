@@ -23,7 +23,7 @@ Also create the empty `homebrew-tap` repository.
    Re-record `examples/*.buildprof` with this version if the trace format
    changed (see `examples/README.md`).
 2. Run `just release-prepare` to update the action's default recorder version
-   and README release-tag example from `Cargo.toml`. Run `cargo check` to
+   and the docs' release-tag example from `Cargo.toml`. Run `cargo check` to
    refresh `Cargo.lock`. Then run `just release-check`, commit, push,
    and wait for CI.
 3. Tag and push: `git tag v0.2.2 && git push origin v0.2.2`.
@@ -60,7 +60,7 @@ Manual follow-ups:
 ## GitHub Action releases
 
 The action ships under the crate's `vX.Y.Z` tags. `just release-prepare`
-updates its recorder default and README example from `Cargo.toml`; CI and
+updates its recorder default and the docs example from `Cargo.toml`; CI and
 release checks catch drift. Keep release tags fixed. Consumers can use tags
 or release SHAs with Dependabot for upgrade PRs.
 
@@ -78,10 +78,10 @@ tests the released action's default recorder on x86_64 and ARM64 after publicati
 cannot express are edited in by hand, and `allow-dirty = ["ci"]` in
 `dist-workspace.toml` stops dist from overwriting them:
 
-- the release metadata check validates the action default and README example;
+- the release metadata check validates the action default and the docs example;
 - the GitHub release is created as a draft titled `Buildprof <version>`;
 - `infra/release-notes` replaces the install section of dist's notes with
-  the README's commands; the changelog and the download table stay as dist
+  the documented commands; the changelog and the download table stay as dist
   wrote them.
 
 To upgrade dist: bump `cargo-dist-version`, run `dist generate` with

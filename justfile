@@ -38,7 +38,7 @@ test *args:
 check:
     uv run dev/test --collect-only
 
-# Update the action default and README example after changing Cargo.toml's version.
+# Update the action default and docs example after changing Cargo.toml's version.
 release-prepare:
     python3 infra/prepare-action-release
 
