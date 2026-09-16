@@ -565,6 +565,7 @@ pub fn run_wrapper() -> Option<ExitCode> {
                 ));
                 command.arg(format!("-Wl,--time-trace={}", output.display()));
             }
+            hide_wrappers(&profile_dir, &mut command);
             command
         }
         _ => return None,
@@ -572,6 +573,22 @@ pub fn run_wrapper() -> Option<ExitCode> {
     let error = command.exec();
     error!("compiler wrapper failed: {error}");
     Some(ExitCode::from(WRAPPER_FAILURE_EXIT_CODE))
+}
+
+/// Takes the wrapper directory back out of `PATH` before the real compiler
+/// runs. The directory is there to intercept what the build launches, not what
+/// the compiler launches, and a compiler launcher such as ccache resolves its
+/// own name through `PATH`: leaving the directory in place lets it find this
+/// wrapper again, which sends it straight back to the launcher, forever.
+fn hide_wrappers(profile_dir: &OsStr, command: &mut Command) {
+    let Some(path) = env::var_os("PATH") else {
+        return;
+    };
+    let wrappers = Path::new(profile_dir).join(WRAPPER_DIRECTORY_NAME);
+    let kept = env::split_paths(&path).filter(|directory| *directory != wrappers);
+    if let Ok(path) = env::join_paths(kept) {
+        command.env("PATH", path);
+    }
 }
 
 fn find_on_path(program: &str) -> Option<PathBuf> {
