@@ -29,7 +29,7 @@ Look for long-running commands, gaps before compilation starts, and processes
 which keep running after everything else finishes. Click a process to inspect
 its command line, working directory, lifetime, and exit status. For example,
 a long linker invocation is a reason to inspect its LTO flags and then look
-inside the linker with [compiler tracing](#compiler-details).
+inside the linker with [compiler tracing](usage.md#compiler-details).
 
 A parent's lifetime includes time spent waiting for children: follow the
 process tree down to see which command is still running. Process duration
@@ -160,7 +160,7 @@ inputs, and full argument list, including libraries and any LTO flags. Keep
 response files referenced by `@file` available too. Both `clang` and `clang++`
 must be on `PATH` for Buildprof to install its Clang wrappers.
 
-See [compiler support and limitations](../README.md#compiler-details) for
+See [compiler support and limitations](usage.md#compiler-details) for
 supported compilers and the effects on compiler caches.
 
 ## Check whether a change helped
