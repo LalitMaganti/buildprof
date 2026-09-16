@@ -17,12 +17,13 @@
 use self::event::Message;
 use self::tracker::{Clock, TraceSink, Tracker};
 use crate::blind_spots::BlindSpots;
+use crate::compiler::Capture;
 use crate::perfetto::Writer;
 use std::ffi::{CString, OsString};
 use std::io;
 use std::path::Path;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 mod event;
 mod kdebug;
@@ -71,6 +72,7 @@ pub fn record(
     prepared: Prepared,
     command: &[OsString],
     writer: &mut Writer,
+    compilers: &mut Capture,
     blind_spots: &mut BlindSpots,
     file_events: bool,
 ) -> io::Result<u8> {
@@ -81,8 +83,11 @@ pub fn record(
     } = prepared;
     let program = command.first().expect("validated command");
 
+    // Compiler profiles carry wall-clock times; both origins are the same instant.
+    compilers.set_origin(SystemTime::now());
     let mut build = Command::new(program)
         .args(&command[1..])
+        .envs(compilers.child_environment())
         .spawn()
         .map_err(|error| {
             io::Error::new(
@@ -99,7 +104,7 @@ pub fn record(
     );
     collector.seed_threads(threads);
 
-    let mut sink = TraceSink { writer };
+    let mut sink = TraceSink { writer, compilers };
     let mut tracker = Tracker::new(
         &mut sink,
         blind_spots,

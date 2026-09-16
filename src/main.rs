@@ -7,7 +7,7 @@ mod report;
 mod args;
 #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 mod blind_spots;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod compiler;
 mod handoff;
 #[cfg(target_os = "linux")]
@@ -20,8 +20,7 @@ mod util;
 // platform the viewer ships on.
 #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 mod model;
-// Compiler traces are Linux-only for now.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
 mod perfetto;
 
 use args::{Handoff, Wait};
@@ -31,7 +30,7 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     report::init();
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     if let Some(code) = compiler::run_wrapper() {
         return code;
     }
@@ -114,7 +113,6 @@ fn record(
         error!("could not write recording options: {error}");
         return ExitCode::FAILURE;
     }
-    #[cfg(target_os = "linux")]
     let mut compilers = compiler::Capture::new(compiler_traces);
     let mut blind_spots = blind_spots::BlindSpots::default();
     #[cfg(target_os = "linux")]
@@ -130,6 +128,7 @@ fn record(
         prepared,
         &command,
         &mut writer,
+        &mut compilers,
         &mut blind_spots,
         file_events,
     );
