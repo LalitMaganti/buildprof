@@ -267,7 +267,13 @@ pub fn record(
     // written at the end. The recorder therefore outlives an interrupted build.
     ignore_interrupts();
     let root_pid = build.id() as i32;
-    let mut collector = recon::Collector::new(root_pid);
+    let mut collector = recon::Collector::new(root_pid, clock);
+    collector.set_root_command(
+        command
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect(),
+    );
     collector.seed_threads(threads);
 
     let mut sink = TraceSink { writer };
@@ -293,6 +299,7 @@ pub fn record(
         collect(&mut session, &mut collector, &mut |message| {
             tracker.handle(message)
         })?;
+        collector.tick(&mut |message| tracker.handle(message))?;
         if let Some(ended) = ended
             && ended.elapsed() > DRAIN
         {
@@ -321,6 +328,18 @@ pub fn record(
         // so reading nonstop wastes a core. The kernel ends the wait early when
         // a batch is ready.
         let _ = session.wait(READ_INTERVAL.as_millis() as u64);
+    }
+    collector.flush(&mut |message| tracker.handle(message))?;
+    match collector.unnamed {
+        0 => {}
+        1 => note!(
+            "1 process ended before its command line could be read; it is named after its \
+             program alone"
+        ),
+        n => note!(
+            "{n} processes ended before their command line could be read; they are named after \
+             their program alone"
+        ),
     }
     if collector.dropped > 0 {
         let times = match collector.dropped {
