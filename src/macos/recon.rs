@@ -80,7 +80,7 @@ struct Process {
 struct Call {
     code: u32,
     args: [u64; 4],
-    lookups: Vec<String>,
+    lookups: Vec<(u64, String)>,
 }
 
 /// What a process reports about itself. This is when it started, its command
@@ -156,8 +156,11 @@ pub struct Collector {
     clock: Clock,
     processes: HashMap<i32, Process>,
     threads: HashMap<u64, i32>,
-    lookups: HashMap<u64, Vec<u64>>,
+    lookups: HashMap<u64, (u64, Vec<u64>)>,
     calls: HashMap<u64, Call>,
+    /// Paths of files that some process looked up by an absolute path. A
+    /// lookup that restarted at a symbolic link resolves through this.
+    vnode_paths: HashMap<u64, String>,
     names: HashMap<i32, String>,
     held_exits: Vec<HeldExit>,
     argv_retries: Vec<PendingArgv>,
@@ -193,6 +196,7 @@ impl Collector {
             threads: HashMap::new(),
             lookups: HashMap::new(),
             calls: HashMap::new(),
+            vnode_paths: HashMap::new(),
             names: HashMap::new(),
             held_exits: Vec::new(),
             argv_retries: Vec::new(),
@@ -299,17 +303,22 @@ impl Collector {
                 return Ok(());
             }
             VFS_LOOKUP => {
-                let words = self.lookups.entry(thread).or_default();
+                let entry = self.lookups.entry(thread).or_default();
                 if event.is_start() {
-                    words.clear();
-                    words.extend_from_slice(&args[1..]);
+                    entry.0 = args[0];
+                    entry.1.clear();
+                    entry.1.extend_from_slice(&args[1..]);
                 } else {
-                    words.extend_from_slice(&args);
+                    entry.1.extend_from_slice(&args);
                 }
                 if event.is_end() {
-                    let path = decode_string(&std::mem::take(words));
+                    let (vnode, words) = std::mem::take(entry);
+                    let path = decode_string(&words);
+                    if path.starts_with('/') {
+                        self.vnode_paths.insert(vnode, normalize(&path));
+                    }
                     if let Some(call) = self.calls.get_mut(&thread) {
-                        call.lookups.push(path);
+                        call.lookups.push((vnode, path));
                     }
                 }
                 return Ok(());
@@ -622,7 +631,7 @@ impl Collector {
             };
             let directory = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
             let path = match call.lookups.first() {
-                Some(raw) => self.resolve(pid, raw, directory),
+                Some((vnode, raw)) => self.resolve(pid, *vnode, raw, directory),
                 // Opening "/" is the one open the kernel logs no lookup for.
                 None if flags & O_DIRECTORY != 0 => Some("/".to_owned()),
                 None => return Ok(()),
@@ -656,12 +665,12 @@ impl Collector {
                 // A rename looks up its source and then its destination.
                 let at = code != RENAME;
                 let last = call.lookups.len() - 1;
-                let (from_raw, to_raw) =
-                    (call.lookups[last - 1].clone(), call.lookups[last].clone());
+                let (from_vnode, from_raw) = call.lookups[last - 1].clone();
+                let (to_vnode, to_raw) = call.lookups[last].clone();
                 let from_dir = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
                 let to_dir = at.then(|| call.args[2]).filter(|fd| *fd as i32 != AT_FDCWD);
-                let from = self.resolve(pid, &from_raw, from_dir);
-                let to = self.resolve(pid, &to_raw, to_dir);
+                let from = self.resolve(pid, from_vnode, &from_raw, from_dir);
+                let to = self.resolve(pid, to_vnode, &to_raw, to_dir);
                 if let (Some(from), Some(to)) = (from, to) {
                     out(Message {
                         mach_time,
@@ -672,8 +681,8 @@ impl Collector {
                 }
             }
             CHDIR => {
-                if let Some(raw) = call.lookups.first().cloned() {
-                    let resolved = self.resolve(pid, &raw, None);
+                if let Some((vnode, raw)) = call.lookups.first().cloned() {
+                    let resolved = self.resolve(pid, vnode, &raw, None);
                     if let Some(state) = self.processes.get_mut(&pid) {
                         state.cwd = resolved;
                     }
@@ -718,6 +727,14 @@ impl Collector {
         Ok(())
     }
 
+    /// Whether `directory` holds `name` now. This is checked every time,
+    /// because a build creates and deletes directories as it goes. An answer
+    /// remembered from before a directory existed would send later paths to the
+    /// root.
+    fn holds(&self, directory: &str, name: &str) -> bool {
+        std::fs::symlink_metadata(format!("{directory}/{name}")).is_ok()
+    }
+
     fn fd_path(&self, pid: i32, fd: u64) -> Option<String> {
         self.processes
             .get(&pid)?
@@ -727,14 +744,41 @@ impl Collector {
     }
 
     /// Resolves a path as the kernel reported it.
-    fn resolve(&self, pid: i32, raw: &str, directory: Option<u64>) -> Option<String> {
+    fn resolve(
+        &mut self,
+        pid: i32,
+        vnode: u64,
+        raw: &str,
+        directory: Option<u64>,
+    ) -> Option<String> {
         if raw.starts_with('/') {
             return Some(normalize(raw));
+        }
+        // A lookup's vnode is the object found. When the name does not exist
+        // yet, it is the directory instead. A known path is therefore the same
+        // file only if it ends in the same name. This recovers lookups that
+        // restarted at a symbolic link.
+        let last = |path: &str| path.rsplit('/').next().unwrap_or_default().to_owned();
+        if let Some(known) = self.vnode_paths.get(&vnode)
+            && last(known) == last(raw)
+        {
+            return Some(known.clone());
         }
         let base = match directory {
             Some(fd) => self.fd_path(pid, fd)?,
             None => self.processes.get(&pid)?.cwd.clone()?,
         };
+        // A lookup can restart at a relative symbolic link near the root, like
+        // `/var`, which points at `private/var`. It then continues from the
+        // root, not from the process's directory.
+        let first = raw.split('/').next().unwrap_or(raw);
+        if !first.is_empty()
+            && raw.contains('/')
+            && !self.holds(&base, first)
+            && self.holds("", first)
+        {
+            return Some(normalize(&format!("/{raw}")));
+        }
         Some(normalize(&format!("{base}/{raw}")))
     }
 }
@@ -982,6 +1026,100 @@ mod tests {
             })
             .collect();
         assert_eq!(paths, ["/src/dir", "/src/dir/b.o", "/src/sub/c.o"]);
+    }
+
+    #[test]
+    fn recovers_a_lookup_that_restarted_at_a_symlink() {
+        let mut stream = Stream::new();
+        // Another process resolves the real path, so the vnode is known.
+        stream
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x5555, "/toolchain/sdk-26/settings.plist")
+            .push(10, OPEN | 2, [0, 3, 0, 0])
+            // A later open of the same file through a relative symlink reports
+            // only what the link pointed at.
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x5555, "sdk-26/settings.plist")
+            .push(10, OPEN | 2, [0, 4, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        let paths: Vec<_> = messages
+            .iter()
+            .filter_map(|message| match &message.event {
+                Event::Open { path, .. } => Some(path.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "/toolchain/sdk-26/settings.plist",
+                "/toolchain/sdk-26/settings.plist"
+            ]
+        );
+    }
+
+    #[test]
+    fn resolves_a_lookup_that_restarted_at_a_link_near_the_root() {
+        // /var points at private/var, so a temporary file's lookup restarts
+        // there and continues from the root, not the working directory.
+        let mut stream = Stream::new();
+        stream
+            .push(10, OPEN | 1, [0, 0x601, 0, 0])
+            .lookup(10, 0xaaaa, "private/var/folders/xx/ar.tmp")
+            .push(10, OPEN | 2, [0, 3, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        assert!(
+            matches!(
+                &messages[0].event,
+                Event::Open { path, .. } if path == "/private/var/folders/xx/ar.tmp"
+            ),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn a_directory_made_after_a_lookup_missed_it_is_found() {
+        // The build makes a directory named tmp, like one at the root. It does
+        // not exist yet when the first path into it is resolved, so that path
+        // continues from the root. Once the build makes it, later paths find
+        // it.
+        let directory = std::env::temp_dir().join(format!(
+            "buildprof-near-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let cwd = directory.to_string_lossy().into_owned();
+        let clock = Clock {
+            origin: 0,
+            numer: 1,
+            denom: 1,
+            origin_wall: std::time::SystemTime::now(),
+        };
+        let mut collector = Collector::new(100, cwd.clone(), clock, true);
+        collector.seed_threads([(10, 100)]);
+        let open = |path: &str| {
+            let mut stream = Stream::new();
+            stream
+                .push(10, OPEN | 1, [0, 0x601, 0, 0])
+                .lookup(10, 0x1234, path)
+                .push(10, OPEN | 2, [0, 3, 0, 0]);
+            stream
+        };
+        let path_of = |messages: Vec<Message>| match &messages[0].event {
+            Event::Open { path, .. } => path.clone(),
+            other => panic!("{other:?}"),
+        };
+
+        let before = path_of(open("tmp/x").collect(&mut collector));
+        std::fs::create_dir(directory.join("tmp")).unwrap();
+        let after = path_of(open("tmp/y").collect(&mut collector));
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert_eq!(before, "/tmp/x");
+        assert_eq!(after, format!("{}/tmp/y", normalize(&cwd)));
     }
 
     #[test]
