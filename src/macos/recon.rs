@@ -76,7 +76,7 @@ struct Process {
 struct Call {
     code: u32,
     args: [u64; 4],
-    lookups: Vec<String>,
+    lookups: Vec<(u64, String)>,
 }
 
 struct HeldExit {
@@ -91,13 +91,19 @@ pub struct Collector {
     clock: Clock,
     processes: HashMap<i32, Process>,
     threads: HashMap<u64, i32>,
-    lookups: HashMap<u64, Vec<u64>>,
+    lookups: HashMap<u64, (u64, Vec<u64>)>,
     calls: HashMap<u64, Call>,
+    /// Paths of files that some process looked up by an absolute path. A
+    /// lookup that restarted at a symbolic link resolves through this.
+    vnode_paths: HashMap<u64, String>,
     names: HashMap<i32, String>,
     held_exits: Vec<HeldExit>,
     argv_retries: Vec<(i32, u64, u32)>,
     argv_buffer: Vec<u8>,
     file_events: bool,
+    /// Whether a name exists in a directory, asked only when a path cannot be
+    /// resolved otherwise and remembered per directory and name.
+    exists: HashMap<String, bool>,
     /// Events the kernel dropped because the buffer filled.
     pub dropped: u64,
     /// Processes whose command line was gone before it could be read, and which
@@ -120,11 +126,13 @@ impl Collector {
             threads: HashMap::new(),
             lookups: HashMap::new(),
             calls: HashMap::new(),
+            vnode_paths: HashMap::new(),
             names: HashMap::new(),
             held_exits: Vec::new(),
             argv_retries: Vec::new(),
             argv_buffer: vec![0; 1 << 18],
             file_events,
+            exists: HashMap::new(),
             dropped: 0,
             unnamed: 0,
         }
@@ -207,17 +215,22 @@ impl Collector {
                 return Ok(());
             }
             VFS_LOOKUP => {
-                let words = self.lookups.entry(thread).or_default();
+                let entry = self.lookups.entry(thread).or_default();
                 if event.is_start() {
-                    words.clear();
-                    words.extend_from_slice(&args[1..]);
+                    entry.0 = args[0];
+                    entry.1.clear();
+                    entry.1.extend_from_slice(&args[1..]);
                 } else {
-                    words.extend_from_slice(&args);
+                    entry.1.extend_from_slice(&args);
                 }
                 if event.is_end() {
-                    let path = decode_string(&std::mem::take(words));
+                    let (vnode, words) = std::mem::take(entry);
+                    let path = decode_string(&words);
+                    if path.starts_with('/') {
+                        self.vnode_paths.insert(vnode, normalize(&path));
+                    }
                     if let Some(call) = self.calls.get_mut(&thread) {
-                        call.lookups.push(path);
+                        call.lookups.push((vnode, path));
                     }
                 }
                 return Ok(());
@@ -424,7 +437,7 @@ impl Collector {
             };
             let directory = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
             let path = match call.lookups.first() {
-                Some(raw) => self.resolve(pid, raw, directory),
+                Some((vnode, raw)) => self.resolve(pid, *vnode, raw, directory),
                 // Opening "/" is the one open the kernel logs no lookup for.
                 None if flags & O_DIRECTORY != 0 => Some("/".to_owned()),
                 None => return Ok(()),
@@ -458,12 +471,12 @@ impl Collector {
                 // A rename looks up its source and then its destination.
                 let at = code != RENAME;
                 let last = call.lookups.len() - 1;
-                let (from_raw, to_raw) =
-                    (call.lookups[last - 1].clone(), call.lookups[last].clone());
+                let (from_vnode, from_raw) = call.lookups[last - 1].clone();
+                let (to_vnode, to_raw) = call.lookups[last].clone();
                 let from_dir = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
                 let to_dir = at.then(|| call.args[2]).filter(|fd| *fd as i32 != AT_FDCWD);
-                let from = self.resolve(pid, &from_raw, from_dir);
-                let to = self.resolve(pid, &to_raw, to_dir);
+                let from = self.resolve(pid, from_vnode, &from_raw, from_dir);
+                let to = self.resolve(pid, to_vnode, &to_raw, to_dir);
                 if let (Some(from), Some(to)) = (from, to) {
                     out(Message {
                         mach_time,
@@ -474,8 +487,8 @@ impl Collector {
                 }
             }
             CHDIR => {
-                if let Some(raw) = call.lookups.first().cloned() {
-                    let resolved = self.resolve(pid, &raw, None);
+                if let Some((vnode, raw)) = call.lookups.first().cloned() {
+                    let resolved = self.resolve(pid, vnode, &raw, None);
                     if let Some(state) = self.processes.get_mut(&pid) {
                         state.cwd = resolved;
                     }
@@ -520,6 +533,17 @@ impl Collector {
         Ok(())
     }
 
+    /// Whether `directory` holds `name`, remembered for later lookups.
+    fn holds(&mut self, directory: &str, name: &str) -> bool {
+        let candidate = format!("{directory}/{name}");
+        if let Some(known) = self.exists.get(&candidate) {
+            return *known;
+        }
+        let known = std::fs::symlink_metadata(&candidate).is_ok();
+        self.exists.insert(candidate, known);
+        known
+    }
+
     fn fd_path(&self, pid: i32, fd: u64) -> Option<String> {
         self.processes
             .get(&pid)?
@@ -529,14 +553,40 @@ impl Collector {
     }
 
     /// Resolves a path as the kernel reported it.
-    fn resolve(&self, pid: i32, raw: &str, directory: Option<u64>) -> Option<String> {
+    fn resolve(
+        &mut self,
+        pid: i32,
+        vnode: u64,
+        raw: &str,
+        directory: Option<u64>,
+    ) -> Option<String> {
         if raw.starts_with('/') {
             return Some(normalize(raw));
+        }
+        // A lookup's vnode is the object found, or its directory when the name
+        // does not exist yet, so only a known path ending in the same name is
+        // the same file. This recovers lookups that restarted at a symlink.
+        let last = |path: &str| path.rsplit('/').next().unwrap_or_default().to_owned();
+        if let Some(known) = self.vnode_paths.get(&vnode)
+            && last(known) == last(raw)
+        {
+            return Some(known.clone());
         }
         let base = match directory {
             Some(fd) => self.fd_path(pid, fd)?,
             None => self.processes.get(&pid)?.cwd.clone()?,
         };
+        // A lookup that restarted at a relative symbolic link near the root,
+        // such as `/var` pointing at `private/var`, continues from the root
+        // rather than from the process's directory.
+        let first = raw.split('/').next().unwrap_or(raw);
+        if !first.is_empty()
+            && raw.contains('/')
+            && !self.holds(&base, first)
+            && self.holds("", first)
+        {
+            return Some(normalize(&format!("/{raw}")));
+        }
         Some(normalize(&format!("{base}/{raw}")))
     }
 }
@@ -761,6 +811,55 @@ mod tests {
             })
             .collect();
         assert_eq!(paths, ["/src/dir", "/src/dir/b.o", "/src/sub/c.o"]);
+    }
+
+    #[test]
+    fn recovers_a_lookup_that_restarted_at_a_symlink() {
+        let mut stream = Stream::new();
+        // Another process resolves the real path, so the vnode is known.
+        stream
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x5555, "/toolchain/sdk-26/settings.plist")
+            .push(10, OPEN | 2, [0, 3, 0, 0])
+            // A later open of the same file through a relative symlink reports
+            // only what the link pointed at.
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x5555, "sdk-26/settings.plist")
+            .push(10, OPEN | 2, [0, 4, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        let paths: Vec<_> = messages
+            .iter()
+            .filter_map(|message| match &message.event {
+                Event::Open { path, .. } => Some(path.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "/toolchain/sdk-26/settings.plist",
+                "/toolchain/sdk-26/settings.plist"
+            ]
+        );
+    }
+
+    #[test]
+    fn resolves_a_lookup_that_restarted_at_a_link_near_the_root() {
+        // /var points at private/var, so a temporary file's lookup restarts
+        // there and continues from the root, not the working directory.
+        let mut stream = Stream::new();
+        stream
+            .push(10, OPEN | 1, [0, 0x601, 0, 0])
+            .lookup(10, 0xaaaa, "private/var/folders/xx/ar.tmp")
+            .push(10, OPEN | 2, [0, 3, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        assert!(
+            matches!(
+                &messages[0].event,
+                Event::Open { path, .. } if path == "/private/var/folders/xx/ar.tmp"
+            ),
+            "{messages:?}"
+        );
     }
 
     #[test]
