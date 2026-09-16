@@ -21,14 +21,24 @@ LAUNCHERS = frozenset({"ccache", "distcc", "icecc", "sccache"})
 
 
 @pytest.fixture
-def plain_environment() -> dict[str, str]:
-    """The environment with any compiler launcher taken off `PATH`."""
+def plain_toolchain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Takes any compiler launcher off `PATH` for the whole test.
+
+    Not just for the recording: CMake and Meson resolve the compiler when they
+    configure, and write the path they found into the build files, so a
+    launcher they saw would be used however the recording is run.
+    """
     directories = [
         directory
         for directory in os.environ.get("PATH", "").split(os.pathsep)
         if not LAUNCHERS & set(Path(directory).parts)
     ]
-    return dict(os.environ, LC_ALL="C", PATH=os.pathsep.join(directories))
+    monkeypatch.setenv("PATH", os.pathsep.join(directories))
+    # Meson goes looking for a launcher binary rather than taking the one in
+    # front of the compiler on PATH, and only leaves the compiler alone when
+    # it is told which one to use.
+    monkeypatch.setenv("CC", "cc")
+    monkeypatch.setenv("CXX", "c++")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

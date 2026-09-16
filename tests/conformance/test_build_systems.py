@@ -200,9 +200,7 @@ def _summarise(trace: Path) -> str:
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
-def test_build_system(
-    case, buildprof: Path, tmp_path: Path, request, plain_environment: dict
-):
+def test_build_system(case, buildprof: Path, tmp_path: Path, request, plain_toolchain):
     for tool in REQUIRED_TOOLS[case]:
         if shutil.which(tool) is None:
             message = f"{tool} is not installed in this environment"
@@ -216,13 +214,14 @@ def test_build_system(
     command = build(project)
 
     trace = tmp_path / f"{case}.pftrace"
+    env = dict(os.environ, LC_ALL="C")
     result = subprocess.run(
         [str(buildprof), "-o", str(trace), "--", *command],
         cwd=project,
         text=True,
         capture_output=True,
         timeout=300,
-        env=plain_environment,
+        env=env,
     )
     assert result.returncode == 0, f"{case} build failed:\n{result.stdout}{result.stderr}"
     assert trace.is_file(), f"{case} produced no trace"
@@ -242,7 +241,7 @@ def test_build_system(
     )
 
 
-def test_npm_build(buildprof: Path, tmp_path: Path, plain_environment: dict):
+def test_npm_build(buildprof: Path, tmp_path: Path, plain_toolchain):
     for tool in ("npm", "node"):
         if shutil.which(tool) is None:
             message = f"{tool} is not installed in this environment"
@@ -255,7 +254,7 @@ def test_npm_build(buildprof: Path, tmp_path: Path, plain_environment: dict):
     result = subprocess.run(
         [str(buildprof), "--no-open", "-o", str(trace), "--", *command],
         cwd=tmp_path,
-        env=dict(plain_environment, npm_config_cache=str(tmp_path / ".npm")),
+        env=dict(os.environ, LC_ALL="C", npm_config_cache=str(tmp_path / ".npm")),
         text=True,
         capture_output=True,
         timeout=60,
