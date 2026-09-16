@@ -29,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            gcc g++ libc6-dev make cmake ninja-build meson golang-go binutils llvm \
+            gcc g++ clang ccache libc6-dev make cmake ninja-build meson golang-go binutils llvm \
             podman nodejs npm zstd
 
       - name: Install Bazel
