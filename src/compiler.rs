@@ -77,7 +77,19 @@ impl Capture {
         self.origin = origin;
     }
 
+    /// Variables that turn on the wrappers, for a build started with `Command`.
+    #[cfg(target_os = "macos")]
+    pub fn child_environment(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
+        self.child_environment.iter().map(|(name, value)| {
+            (
+                OsStr::from_bytes(name.as_bytes()),
+                OsStr::from_bytes(value.as_bytes()),
+            )
+        })
+    }
+
     /// Apply already-prepared variables in the forked child without allocating.
+    #[cfg(target_os = "linux")]
     pub unsafe fn configure_child(&self) {
         for (name, value) in &self.child_environment {
             // SAFETY: both strings are retained by `self`, NUL terminated, and
