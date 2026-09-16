@@ -123,13 +123,15 @@ def main() -> int:
     # A short, stable installer URL; GitHub's "latest" redirect keeps it
     # pointing at the newest release without a redeploy. The /diagnose/ links
     # are printed by the CLI, so installed binaries keep working when the
-    # README's headings change; update the anchors here instead.
-    readme = "https://github.com/LalitMaganti/buildprof"
+    # troubleshooting headings change; update the anchors here instead.
+    troubleshooting = (
+        "https://github.com/LalitMaganti/buildprof/blob/main/docs/troubleshooting.md"
+    )
     (site / "_redirects").write_text(
         "/install.sh https://github.com/LalitMaganti/buildprof/releases/latest/download/buildprof-installer.sh 302\n"
-        f"/diagnose/containers {readme}#builds-inside-docker-containers 302\n"
-        f"/diagnose/daemons {readme}#bazel-gradle-and-other-daemon-build-systems 302\n"
-        f"/diagnose/podman {readme}#use-podman 302\n"
+        f"/diagnose/containers {troubleshooting}#builds-inside-docker-containers 302\n"
+        f"/diagnose/daemons {troubleshooting}#bazel-gradle-and-other-daemon-build-systems 302\n"
+        f"/diagnose/podman {troubleshooting}#use-podman 302\n"
     )
 
     if args.headers is not None:

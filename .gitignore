@@ -17,6 +17,10 @@ third_party/src/
 /docs/*
 !/docs/investigating-builds.md
 !/docs/ripgrep-tutorial.md
+!/docs/usage.md
+!/docs/build-systems.md
+!/docs/troubleshooting.md
+!/docs/internals.md
 !/docs/assets/
 /docs/assets/*
 !/docs/assets/ripgrep-release-clean.png
