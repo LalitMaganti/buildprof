@@ -5,6 +5,11 @@ creation, execution, and exit through the complete descendant tree. A seccomp
 filter lets it stop only for the filesystem operations it records instead of
 paying the cost of intercepting every system call.
 
+On macOS, it reads kernel trace events instead. Starting a trace session needs
+root, but the kernel keeps granting access to the process that owns it, so
+Buildprof is privileged only while it starts: it configures the session, gives
+up root, and then runs the build and writes the trace as the person who ran it.
+
 The recorder writes a Perfetto protobuf trace directly. Perfetto provides the
 storage format, query engine, and core timeline interactions; Buildprof adds
 the build-specific view on top, including process ancestry, command types,

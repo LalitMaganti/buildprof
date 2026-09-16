@@ -40,8 +40,8 @@ rather than the build around it. Buildprof follows the complete process tree,
 so the same view covers the build system, compilers, linkers, code generators,
 and anything else the build launches.
 
-Recording requires Linux. You can explore recordings on any platform in the
-[web UI](https://buildprof.lalitm.com); trace data stays in your browser.
+Recording requires Linux or macOS. You can explore recordings on any platform
+in the [web UI](https://buildprof.lalitm.com); trace data stays in your browser.
 
 ## Try it in your browser
 
@@ -55,7 +55,7 @@ follow the [guided tour](docs/ripgrep-tutorial.md).
 
 ### 1. Install Buildprof
 
-On the Linux machine that runs your build:
+On the machine that runs your build:
 
 ```bash
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
@@ -70,12 +70,15 @@ In your project directory, put `buildprof --` in front of your usual build
 command:
 
 ```bash
-buildprof -- make -j8
+buildprof -- make -j8          # Linux
+sudo buildprof -- make -j8     # macOS: kernel tracing needs root
 ```
 
 Replace `make -j8` with your build command, such as `cargo build` or
-`ninja -C out`. Bazel, Gradle and Docker hand work to a daemon, which needs
-[a little more care](docs/troubleshooting.md).
+`ninja -C out`. On macOS, Buildprof gives up root as soon as tracing is
+running, so the build itself runs as you, with your environment, and the
+recording belongs to you. Bazel, Gradle and Docker hand work to a daemon,
+which needs [a little more care](docs/troubleshooting.md).
 
 ### 3. Explore the recording
 
@@ -90,7 +93,7 @@ bottlenecks, following file dependencies, and checking whether a change helped.
 
 ## Install
 
-Install on your Linux build machine using whichever method you prefer.
+Install on your build machine using whichever method you prefer.
 
 **Shell installer**:
 
@@ -127,11 +130,15 @@ aarch64 Linux, both glibc and static musl.
 
 ### Requirements
 
-**Recording builds is currently supported on Linux only.** The kernel or
-container configuration must permit tracing child processes: Docker needs
-`--cap-add SYS_PTRACE`, `kernel.yama.ptrace_scope` must be below 3, and
-gVisor-style sandboxes cannot trace at all. Installing from source needs Rust
-1.91 or newer.
+**Linux.** The kernel or container configuration must permit tracing child
+processes: Docker needs `--cap-add SYS_PTRACE`, `kernel.yama.ptrace_scope` must
+be below 3, and gVisor-style sandboxes cannot trace at all.
+
+**macOS 13 or newer.** Recording starts kernel tracing, which needs root, so
+run Buildprof with `sudo`. Only one program can use kernel tracing at a time:
+if Instruments or a similar tool holds it, Buildprof says so.
+
+Installing from source needs Rust 1.91 or newer.
 
 Existing recordings can be viewed on any platform in the
 [web UI](https://buildprof.lalitm.com), without installing Buildprof. Viewing a
