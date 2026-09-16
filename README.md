@@ -22,8 +22,8 @@
 
 ## What is Buildprof?
 
-Buildprof traces **every process** a Linux build launches and turns the
-recording into an **interactive timeline** you can explore in the browser. Put
+Buildprof traces **every process** a build launches and turns the recording
+into an **interactive timeline** you can explore in the browser. Put
 `buildprof --` in front of your build command to get started.
 
 - **See the whole build.** Every command the build ran, however it was
@@ -38,8 +38,9 @@ recording into an **interactive timeline** you can explore in the browser. Put
   work, as do the shell scripts, code generators and wrapper scripts they
   launch.
 
-Recording requires Linux. You can explore recordings on any platform in the
-[web UI](https://buildprof.lalitm.com); trace data stays in your browser.
+Recording requires Linux or macOS. You can explore recordings on any platform
+in the [web UI](https://buildprof.lalitm.com); trace data stays in your
+browser.
 
 ## Try it in your browser
 
@@ -53,7 +54,7 @@ follow the [guided tour](docs/ripgrep-tutorial.md).
 
 ### 1. Install Buildprof
 
-On the Linux machine that runs your build:
+On the machine that runs your build:
 
 ```bash
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
@@ -68,12 +69,15 @@ In your project directory, put `buildprof --` in front of your usual build
 command:
 
 ```bash
-buildprof -- make -j8
+buildprof -- make -j8          # Linux
+sudo buildprof -- make -j8     # macOS: kernel tracing needs root
 ```
 
 Replace `make -j8` with your build command, such as `cargo build` or
-`ninja -C out`. Bazel, Gradle and Docker hand work to a daemon, which needs
-[a little more care](docs/troubleshooting.md).
+`ninja -C out`. On macOS, Buildprof gives up root as soon as tracing is
+running, so the build itself runs as you, with your environment, and the
+recording belongs to you. Bazel, Gradle and Docker hand work to a daemon,
+which needs [a little more care](docs/troubleshooting.md).
 
 ### 3. Explore the recording
 
@@ -128,7 +132,7 @@ land in one timeline, and you can see how their work fits together.
 
 ## Install
 
-Install on your Linux build machine using whichever method you prefer.
+Install on your build machine using whichever method you prefer.
 
 <details>
 <summary>
@@ -182,11 +186,16 @@ musl. The musl build is the one to mount into a container.
 
 ### Requirements
 
-- **Recording needs Linux**, with a kernel and container configuration that
+- **Recording on Linux** needs a kernel and container configuration that
   permits tracing child processes:
   - Docker needs `--cap-add SYS_PTRACE`.
   - `kernel.yama.ptrace_scope` must be below 3.
   - gVisor-style sandboxes cannot trace at all.
+- **Recording on macOS** needs macOS 13 or newer, and root to start kernel
+  tracing:
+  - Run Buildprof with `sudo`; it gives up root once tracing is running.
+  - Only one program can use kernel tracing at a time. If Instruments or a
+    similar tool holds it, Buildprof says so.
 - **Viewing needs nothing.** Recordings open on any platform in the
   [web UI](https://buildprof.lalitm.com), whatever they were recorded on, with
   Buildprof installed or not.
