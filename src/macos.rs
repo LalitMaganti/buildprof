@@ -115,6 +115,7 @@ pub fn record(
         collect(&mut session, &mut collector, &mut |message| {
             tracker.handle(message)
         })?;
+        collector.tick(&mut |message| tracker.handle(message))?;
         if let Some(ended) = ended
             && ended.elapsed() > DRAIN
         {
@@ -138,6 +139,13 @@ pub fn record(
         let _ = session.wait(READ_INTERVAL.as_millis() as u64);
     }
     collector.flush(&mut |message| tracker.handle(message))?;
+    if collector.unnamed > 0 {
+        note!(
+            "{} processes ended before their command line could be read; they are named after \
+             their program alone",
+            collector.unnamed
+        );
+    }
     if collector.dropped > 0 {
         note!(
             "The kernel dropped events {} times while the build ran; the trace may be missing \
