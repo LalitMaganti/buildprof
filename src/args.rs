@@ -56,6 +56,12 @@ struct Cli {
     #[usage(long, global)]
     no_open: bool,
 
+    /// Where a recording started without root saved its environment. Buildprof
+    /// passes this to the copy of itself that sudo runs. It is hidden from
+    /// help.
+    #[usage(long, value_name = "PATH", hide = true, global)]
+    buildprof_saved_environment: Option<PathBuf>,
+
     /// Seconds to wait for a browser to fetch the trace; 0 waits forever.
     /// [default: 600]
     #[usage(
@@ -158,6 +164,8 @@ pub enum Args {
         /// `None` leaves the trace on disk and prints where to open it.
         handoff: Option<Handoff>,
         wait: Wait,
+        /// The environment to restore, when sudo started this recording.
+        saved_environment: Option<PathBuf>,
     },
     Open {
         source: Source,
@@ -194,6 +202,7 @@ fn from_cli(cli: Cli) -> Result<Args, String> {
         file_events: !cli.no_file_events,
         handoff: if cli.no_open { None } else { default_handoff() },
         wait,
+        saved_environment: cli.buildprof_saved_environment.clone(),
     };
     Ok(match cli.action {
         Some(Action::Open {
@@ -287,6 +296,25 @@ mod tests {
         wait: Wait,
     }
 
+    #[test]
+    fn the_saved_environment_flag_reaches_the_recording() {
+        let Args::Record {
+            saved_environment,
+            command,
+            ..
+        } = parse_strings(&[
+            "buildprof",
+            "--buildprof-saved-environment=/tmp/saved",
+            "--",
+            "make",
+        ])
+        else {
+            panic!("expected record arguments")
+        };
+        assert_eq!(saved_environment, Some(PathBuf::from("/tmp/saved")));
+        assert_eq!(command, ["make"]);
+    }
+
     fn recording(args: &[&str]) -> Recording {
         let Args::Record {
             output,
@@ -295,6 +323,7 @@ mod tests {
             file_events,
             handoff,
             wait,
+            ..
         } = parse_strings(args)
         else {
             panic!("expected record arguments")
