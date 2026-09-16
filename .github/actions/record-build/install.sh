@@ -16,12 +16,26 @@ case "$(uname -m)" in
     exit 1
     ;;
 esac
+directory=$(mktemp -d "$RUNNER_TEMP/buildprof.XXXXXXXX")
+# Testing this action against a recorder that has no release yet: the caller
+# built it, so there is nothing to download or verify.
+if [[ -n ${BUILDPROF_RECORDER:-} ]]; then
+  if [[ ! -x $BUILDPROF_RECORDER ]]; then
+    echo "recorder is not an executable file: $BUILDPROF_RECORDER" >&2
+    exit 1
+  fi
+  {
+    echo "binary=$BUILDPROF_RECORDER"
+    echo "trace=$directory/output.buildprof"
+  } >> "$GITHUB_OUTPUT"
+  exit 0
+fi
+
 if [[ ! $BUILDPROF_VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
   echo 'version must be a release tag such as v0.2.5.' >&2
   exit 1
 fi
 
-directory=$(mktemp -d "$RUNNER_TEMP/buildprof.XXXXXXXX")
 archive="buildprof-$target.tar.xz"
 url="https://github.com/LalitMaganti/buildprof/releases/download/$BUILDPROF_VERSION"
 curl --fail --silent --show-error --location "$url/$archive" -o "$directory/$archive"

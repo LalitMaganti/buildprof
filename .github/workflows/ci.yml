@@ -88,12 +88,22 @@ jobs:
           path: zlib
           persist-credentials: false
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      # The release this commit prepares has no assets yet, so recording a
+      # release tag would test an older recorder than the one being shipped.
+      # Build the recorder from this checkout and hand it to the action.
+      - name: Build the recorder under test
+        run: cargo build --release --locked
+
       - name: Record a zlib build and test run
         id: success
         uses: ./
         with:
-          # Before publishing, the upcoming recorder assets are unavailable.
-          version: v0.2.5
+          recorder: ${{ github.workspace }}/target/release/buildprof
           artifact-name: action-success-${{ matrix.runner }}
           command: |
             cmake -S zlib -B zlib-build -DCMAKE_BUILD_TYPE=Release
@@ -105,18 +115,32 @@ jobs:
         continue-on-error: true
         uses: ./
         with:
-          version: v0.2.5
+          recorder: ${{ github.workspace }}/target/release/buildprof
           artifact-name: action-failure-${{ matrix.runner }}
           command: exit 7
+
+      # Nothing above downloads anything, so this covers what installing a
+      # release does: fetch the asset for this architecture and check it
+      # against its checksum. The newest published release, kept current by
+      # infra/prepare-action-release.
+      - name: Record with an installed release
+        id: installed
+        uses: ./
+        with:
+          version: v0.2.6
+          artifact-name: action-installed-${{ matrix.runner }}
+          command: cmake --version
 
       - name: Verify outcomes and uploads
         env:
           SUCCESS_URL: ${{ steps.success.outputs.artifact-url }}
           FAILURE_URL: ${{ steps.failure.outputs.artifact-url }}
+          INSTALLED_URL: ${{ steps.installed.outputs.artifact-url }}
           FAILURE_OUTCOME: ${{ steps.failure.outcome }}
         run: |
           test -n "$SUCCESS_URL"
           test -n "$FAILURE_URL"
+          test -n "$INSTALLED_URL"
           test "$FAILURE_OUTCOME" = failure
 
   ui:

@@ -2,7 +2,12 @@
 # Copyright 2026 The Buildprof Authors.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Synchronize the action and its documentation with the crate release version."""
+"""Synchronize the action, its documentation, and its tests with the crate version.
+
+The action installs a release by tag, so the test that covers installing
+one cannot name the release being prepared: it has no assets yet. It names
+the release before it instead, which this keeps current.
+"""
 
 from __future__ import annotations
 
@@ -18,6 +23,16 @@ ROOT = Path(__file__).resolve().parents[1]
 PREVIEW_VERSION = "v0.2.5"
 PREVIEW_REF = "c1c29c7359a3ccd8b9c9205fa01cc46a1de650f9"
 PREVIEW_NOTE = "# Unreleased preview"
+
+
+def previous_release(root: Path, version: str) -> str:
+    """The newest release before `version`, which is the newest with assets."""
+    changelog = (root / "CHANGELOG.md").read_text()
+    headings = re.findall(r"^## \[(\d+\.\d+\.\d+[^\]]*)\]", changelog, re.MULTILINE)
+    for entry in headings:
+        if f"v{entry}" != version:
+            return f"v{entry}"
+    raise ValueError(f"CHANGELOG.md names no release before {version}")
 
 
 def replace_once(text: str, pattern: str, replacement: str) -> str:
@@ -43,6 +58,10 @@ def prepare(root: Path, *, check: bool, allow_preview: bool) -> list[str]:
         usage: (
             r"(?<=  - uses: LalitMaganti/buildprof@)[^\n]+",
             reference,
+        ),
+        root / ".github/workflows/ci.yml": (
+            r"(?<=^          version: )v[^\n]+",
+            previous_release(root, version),
         ),
     }
     originals = {path: path.read_text() for path in replacements}

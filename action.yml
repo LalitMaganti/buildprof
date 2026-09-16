@@ -10,6 +10,12 @@ inputs:
   version:
     description: Buildprof release tag to install.
     default: v0.2.7
+  recorder:
+    description: >-
+      Path to a recorder binary to use instead of installing a release. This
+      is how the action is tested against a build that has not been released
+      yet; builds that want a release should name one with `version`.
+    default: ''
   artifact-name:
     description: Unique name for this recording within the workflow run.
     default: buildprof-trace
@@ -29,6 +35,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         BUILDPROF_VERSION: ${{ inputs.version }}
+        BUILDPROF_RECORDER: ${{ inputs.recorder }}
       run: bash "$ACTION_PATH/.github/actions/record-build/install.sh"
 
     - name: Record build
