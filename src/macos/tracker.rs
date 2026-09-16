@@ -6,6 +6,7 @@
 
 use super::event::{Event, Message};
 use crate::blind_spots::BlindSpots;
+use crate::compiler::Capture;
 use crate::model::{FileOpen, Process, Rename, Segment};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
@@ -26,11 +27,14 @@ pub trait Sink {
     fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()>;
     fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()>;
     fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()>;
+    /// A process ended; import any compiler profile it left behind.
+    fn process_exited(&mut self, pid: i32, segment_start_ns: u64);
 }
 
-/// The trace being recorded.
+/// The trace being recorded, with the compiler profiles that feed into it.
 pub struct TraceSink<'a> {
     pub writer: &'a mut Writer,
+    pub compilers: &'a mut Capture,
 }
 
 impl Sink for TraceSink<'_> {
@@ -45,6 +49,10 @@ impl Sink for TraceSink<'_> {
     }
     fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()> {
         self.writer.rename(pid, rename)
+    }
+    fn process_exited(&mut self, pid: i32, segment_start_ns: u64) {
+        self.compilers
+            .process_exited(pid, segment_start_ns, self.writer);
     }
 }
 
@@ -338,7 +346,9 @@ impl<'a, S: Sink> Tracker<'a, S> {
         );
         state.segment.exit_code = Some(exit_code);
         announce(self.sink, &mut self.announced, pid)?;
-        self.sink.segment(state.process, &state.segment)
+        self.sink.segment(state.process, &state.segment)?;
+        self.sink.process_exited(pid, state.segment.start_ns);
+        Ok(())
     }
 }
 
@@ -387,6 +397,9 @@ mod tests {
             self.0
                 .push(format!("rename {pid} {} -> {}", rename.from, rename.to));
             Ok(())
+        }
+        fn process_exited(&mut self, pid: i32, segment_start_ns: u64) {
+            self.0.push(format!("exited {pid} {segment_start_ns}"));
         }
     }
 
@@ -469,10 +482,13 @@ mod tests {
                 "start 12",
                 "open 12 30 /src/a.o flags=1101",
                 r#"segment 12 parent=10 build_parent=10 execed=true 15..40 "cc -c a.c" cwd=/src exit=Some(0)"#,
+                "exited 12 15",
                 "start 11",
                 r#"segment 11 parent=10 build_parent=10 execed=true 10..50 "sh -c true" cwd=/src exit=Some(2)"#,
+                "exited 11 10",
                 "start 10",
                 r#"segment 10 parent=0 build_parent=0 execed=true 0..60 "make -j2" cwd=/src exit=Some(0)"#,
+                "exited 10 0",
             ]
         );
     }
@@ -495,6 +511,8 @@ mod tests {
             [
                 r#"segment 10 parent=0 build_parent=0 execed=true 0..5 "sh -c exec cc" cwd=/ exit=None"#,
                 r#"segment 10 parent=0 build_parent=0 execed=true 5..9 "cc" cwd=/ exit=Some(137)"#,
+                // Profiles are matched to the program that last ran in the pid.
+                "exited 10 5",
             ]
         );
     }
