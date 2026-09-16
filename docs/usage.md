@@ -19,7 +19,7 @@ On a Linux runner, install your build tools, then record the build:
 ```yaml
 steps:
   - uses: actions/checkout@v7
-  - uses: LalitMaganti/buildprof@v0.2.6
+  - uses: LalitMaganti/buildprof@v0.2.7
     with:
       command: |
         cmake -S . -B build

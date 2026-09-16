@@ -7,6 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-09-16
+
+### Fixed
+
+- `--compiler-traces` no longer hangs when a compiler launcher such as ccache
+  is on `PATH`. The launcher works out which compiler to run by looking its
+  own name up on `PATH` again, where it found Buildprof's wrapper, which
+  handed straight back to the launcher.
+
 ## [0.2.6] - 2026-09-13
 
 ### Added
