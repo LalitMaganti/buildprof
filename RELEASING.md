@@ -22,10 +22,10 @@ Also create the empty `homebrew-tap` repository.
    `/v<version>/` directory and is what the CLI opens, so they must match.
    Re-record `examples/*.buildprof` with this version if the trace format
    changed (see `examples/README.md`).
-2. Run `just release-prepare` to update the action's default recorder version
-   and the docs' release-tag example from `Cargo.toml`. Run `cargo check` to
-   refresh `Cargo.lock`. Then run `just release-check`, commit, push,
-   and wait for CI.
+2. Run `just release-prepare`, which reads `Cargo.toml` and updates the
+   action's default recorder version, the docs' release-tag example, and the
+   earlier release CI installs. Run `cargo check` to refresh `Cargo.lock`.
+   Then run `just release-check`, commit, push, and wait for CI.
 3. Tag and push: `git tag v0.2.2 && git push origin v0.2.2`.
 4. Review the draft release `Buildprof <version>` that appears on GitHub,
    edit the notes as needed, and publish it.
@@ -60,17 +60,22 @@ Manual follow-ups:
 ## GitHub Action releases
 
 The action ships under the crate's `vX.Y.Z` tags. `just release-prepare`
-updates its recorder default and the docs example from `Cargo.toml`; CI and
-release checks catch drift. Keep release tags fixed. Consumers can use tags
-or release SHAs with Dependabot for upgrade PRs.
+updates its recorder default, the docs example, and the earlier release CI
+installs, all from `Cargo.toml`; CI and release checks catch drift. Keep
+release tags fixed. Consumers can use tags or release SHAs with Dependabot for
+upgrade PRs.
 
 Before the first action release, CI permits the labeled v0.2.5 preview;
 release checks reject it. Remove the preview exception in
 `infra/prepare-action-release` after that release.
 
-PR smoke tests select a published recorder explicitly, since upcoming assets
-are unavailable. Conformance tests use the source build; `action-release.yml`
-tests the released action's default recorder on x86_64 and ARM64 after publication.
+The release being prepared has no assets, so the action's own default cannot
+be tested before it is published. PR smoke tests record with a recorder built
+from the checkout instead, through the action's `recorder` input, so they
+exercise the code being shipped; one further recording installs the previous
+release so that path stays covered, and `just release-prepare` keeps that
+version current. After publication, `action-release.yml` tests the released
+action's default recorder on x86_64 and ARM64.
 
 ## The release workflow is hand-edited
 
@@ -78,7 +83,8 @@ tests the released action's default recorder on x86_64 and ARM64 after publicati
 cannot express are edited in by hand, and `allow-dirty = ["ci"]` in
 `dist-workspace.toml` stops dist from overwriting them:
 
-- the release metadata check validates the action default and the docs example;
+- the release metadata check validates the action default, the docs example,
+  and the release CI installs;
 - the GitHub release is created as a draft titled `Buildprof <version>`;
 - `infra/release-notes` replaces the install section of dist's notes with
   the documented commands; the changelog and the download table stay as dist

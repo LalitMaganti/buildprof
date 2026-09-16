@@ -33,6 +33,22 @@ def release_tree(tmp_path: Path) -> Path:
         steps:
           - uses: LalitMaganti/buildprof@{release["PREVIEW_REF"]} {release["PREVIEW_NOTE"]}
     '''))
+    (tmp_path / "CHANGELOG.md").write_text(dedent('''\
+        ## [Unreleased]
+
+        ## [0.2.5] - 2026-09-11
+
+        ## [0.2.4] - 2026-09-10
+    '''))
+    # The test that installs a release names the one before this version.
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    # Indented as the workflow is, since that is what the pattern anchors on.
+    (tmp_path / ".github/workflows/ci.yml").write_text(
+        "      - name: Record with an installed release\n"
+        "        uses: ./\n"
+        "        with:\n"
+        "          version: v0.2.4\n"
+    )
     return tmp_path
 
 
@@ -45,7 +61,7 @@ def test_prepare_next_release(release_tree: Path, version: str) -> None:
     }
 
     assert set(prepare(release_tree, check=True, allow_preview=True)) == {
-        "action.yml", "docs/usage.md"
+        "action.yml", "docs/usage.md", ".github/workflows/ci.yml"
     }
     assert all(path.read_text() == text for path, text in before.items())
     prepare(release_tree, check=False, allow_preview=False)
@@ -54,6 +70,9 @@ def test_prepare_next_release(release_tree: Path, version: str) -> None:
     usage = (release_tree / "docs/usage.md").read_text()
     assert f"uses: LalitMaganti/buildprof@v{version}\n" in usage
     assert release["PREVIEW_NOTE"] not in usage
+    workflow = (release_tree / ".github/workflows/ci.yml").read_text()
+    # The release under test has no assets, so CI installs the one before it.
+    assert "          version: v0.2.5\n" in workflow
     assert prepare(release_tree, check=True, allow_preview=False) == []
     assert prepare(release_tree, check=False, allow_preview=False) == []
 
@@ -68,6 +87,7 @@ def test_preview_is_not_releasable(release_tree: Path) -> None:
     [
         ("action.yml", "default: v0.2.5", "default: v0.1.0"),
         ("docs/usage.md", "@v0.2.5", "@v0.1.0"),
+        (".github/workflows/ci.yml", "version: v0.2.4", "version: v0.1.0"),
     ],
 )
 def test_check_detects_drift(
