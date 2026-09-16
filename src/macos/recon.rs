@@ -3,23 +3,54 @@
 
 //! Turning kernel trace events into what the build did.
 //!
-//! The kernel reports every process on the machine, so this follows the ones
-//! the build started: a process is part of the build if the process that
-//! created it was. Command lines are not in the trace at all, and are read from
-//! the process itself as soon as its execution appears.
+//! The kernel reports paths as the program passed them: relative to a working
+//! directory, relative to a directory descriptor, or restarting at whatever a
+//! symbolic link pointed to. So this follows the build's processes and keeps,
+//! for each one, its working directory and the paths behind its open
+//! descriptors. Command lines are not in the trace at all and are read from the
+//! process itself as soon as its exec appears.
 
-use super::event::{Event, Message};
+use super::event::{Event, Message, linux_open_flags};
 use super::kdebug;
 use super::tracker::Clock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 
+// Process lifecycle, always traced.
 const NEWTHREAD: u32 = 0x0700_0004;
 const DATA_EXEC: u32 = 0x0700_0008;
 const STRING_EXEC: u32 = 0x0701_0008;
 const LOST_EVENTS: u32 = 0x0702_0008;
 const PROC_EXIT: u32 = 0x0401_0004;
+const VFS_LOOKUP: u32 = 0x0301_0090;
+
+// The syscalls whose paths, descriptors and results are followed.
+const OPEN: u32 = 0x040c_0014;
+const OPEN_NOCANCEL: u32 = 0x040c_0638;
+const OPEN_EXTENDED: u32 = 0x040c_0454;
+const OPEN_DPROTECTED: u32 = 0x040c_0360;
+const GUARDED_OPEN: u32 = 0x040c_06e4;
+const GUARDED_OPEN_DPROTECTED: u32 = 0x040c_0790;
+const OPENAT: u32 = 0x040c_073c;
+const OPENAT_NOCANCEL: u32 = 0x040c_0740;
+const OPENAT_DPROTECTED: u32 = 0x040c_0368;
+const CHDIR: u32 = 0x040c_0030;
+const FCHDIR: u32 = 0x040c_0034;
+const CLOSE: u32 = 0x040c_0018;
+const CLOSE_NOCANCEL: u32 = 0x040c_063c;
+const GUARDED_CLOSE: u32 = 0x040c_06e8;
+const DUP: u32 = 0x040c_00a4;
+const DUP2: u32 = 0x040c_0168;
+const FCNTL: u32 = 0x040c_0170;
+const FCNTL_NOCANCEL: u32 = 0x040c_0658;
+
+const AT_FDCWD: i32 = -2;
+const O_CLOEXEC: u64 = 0x0100_0000;
+const O_DIRECTORY: u64 = 0x0010_0000;
+const F_DUPFD: u64 = 0;
+const F_SETFD: u64 = 2;
+const F_DUPFD_CLOEXEC: u64 = 67;
 
 /// How long an exit is held before it is believed, in trace time. The kernel
 /// also reports an exit when a process replaces its image, and the new image
@@ -32,6 +63,19 @@ const ARGV_ATTEMPTS: u32 = 5;
 /// is taken to be a different process that reused the pid.
 const REUSE_TOLERANCE: Duration = Duration::from_millis(2);
 
+#[derive(Clone, Default)]
+struct Process {
+    cwd: Option<String>,
+    /// Descriptor to (path, close-on-exec).
+    fds: HashMap<i32, (Option<String>, bool)>,
+}
+
+struct Call {
+    code: u32,
+    args: [u64; 4],
+    lookups: Vec<String>,
+}
+
 struct HeldExit {
     pid: i32,
     mach_time: u64,
@@ -42,14 +86,15 @@ struct HeldExit {
 pub struct Collector {
     root: i32,
     clock: Clock,
-    processes: HashSet<i32>,
+    processes: HashMap<i32, Process>,
     threads: HashMap<u64, i32>,
-    /// The program each process is running, for the ones whose command line
-    /// could not be read.
+    lookups: HashMap<u64, Vec<u64>>,
+    calls: HashMap<u64, Call>,
     names: HashMap<i32, String>,
     held_exits: Vec<HeldExit>,
     argv_retries: Vec<(i32, u64, u32)>,
     argv_buffer: Vec<u8>,
+    file_events: bool,
     /// Events the kernel dropped because the buffer filled.
     pub dropped: u64,
     /// Processes whose command line was gone before it could be read, and which
@@ -58,16 +103,25 @@ pub struct Collector {
 }
 
 impl Collector {
-    pub fn new(root: i32, clock: Clock) -> Self {
+    pub fn new(root: i32, root_cwd: String, clock: Clock, file_events: bool) -> Self {
         Self {
             root,
             clock,
-            processes: HashSet::from([root]),
+            processes: HashMap::from([(
+                root,
+                Process {
+                    cwd: Some(normalize(&root_cwd)),
+                    fds: HashMap::new(),
+                },
+            )]),
             threads: HashMap::new(),
+            lookups: HashMap::new(),
+            calls: HashMap::new(),
             names: HashMap::new(),
             held_exits: Vec::new(),
             argv_retries: Vec::new(),
             argv_buffer: vec![0; 1 << 18],
+            file_events,
             dropped: 0,
             unnamed: 0,
         }
@@ -95,18 +149,23 @@ impl Collector {
                 if let Some(parent) = parent
                     && parent != pid
                 {
-                    if self.processes.contains(&parent) {
-                        self.cancel_exit(pid);
-                        self.processes.insert(pid);
-                        out(Message {
-                            mach_time: event.timestamp,
-                            pid: parent,
-                            ppid: 0,
-                            event: Event::Fork { child: pid },
-                        })?;
-                    } else if pid != self.root {
+                    match self.processes.get(&parent).cloned() {
+                        // A new process inherits its parent's directory and descriptors.
+                        Some(state) => {
+                            self.cancel_exit(pid);
+                            self.processes.insert(pid, state);
+                            out(Message {
+                                mach_time: event.timestamp,
+                                pid: parent,
+                                ppid: 0,
+                                event: Event::Fork { child: pid },
+                            })?;
+                        }
                         // Someone else now has this pid; stop following it.
-                        self.processes.remove(&pid);
+                        None if pid != self.root => {
+                            self.processes.remove(&pid);
+                        }
+                        None => {}
                     }
                 }
                 return Ok(());
@@ -125,16 +184,16 @@ impl Collector {
         // being replaced, not the process ending.
         self.cancel_exit(pid);
         self.believe_exits(event.timestamp, out)?;
-        if !self.processes.contains(&pid) {
+        if !self.processes.contains_key(&pid) {
             return Ok(());
         }
 
         match code {
-            DATA_EXEC => return self.exec(pid, event.timestamp, out),
-            // The kernel names the new program right after the execution.
             STRING_EXEC => {
                 self.names.insert(pid, decode_string(&args));
+                return Ok(());
             }
+            DATA_EXEC => return self.exec(pid, event.timestamp, out),
             PROC_EXIT if event.is_end() => {
                 self.held_exits.push(HeldExit {
                     pid,
@@ -142,10 +201,56 @@ impl Collector {
                     stat: args[1] as i32,
                     believe_after: event.timestamp + self.ticks(EXIT_HOLD_NS),
                 });
+                return Ok(());
+            }
+            VFS_LOOKUP => {
+                let words = self.lookups.entry(thread).or_default();
+                if event.is_start() {
+                    words.clear();
+                    words.extend_from_slice(&args[1..]);
+                } else {
+                    words.extend_from_slice(&args);
+                }
+                if event.is_end() {
+                    let path = decode_string(&std::mem::take(words));
+                    if let Some(call) = self.calls.get_mut(&thread) {
+                        call.lookups.push(path);
+                    }
+                }
+                return Ok(());
             }
             _ => {}
         }
-        Ok(())
+
+        if !is_followed(code) {
+            return Ok(());
+        }
+        if event.is_start() {
+            self.calls.insert(
+                thread,
+                Call {
+                    code,
+                    args,
+                    lookups: Vec::new(),
+                },
+            );
+            return Ok(());
+        }
+        if !event.is_end() {
+            return Ok(());
+        }
+        let Some(call) = self.calls.remove(&thread) else {
+            return Ok(());
+        };
+        // The first argument of a syscall's end is its errno.
+        if call.code != code {
+            return Ok(());
+        }
+        if args[0] != 0 {
+            return Ok(());
+        }
+        let returned = args[1] as i64;
+        self.finish_call(pid, event.timestamp, &call, returned, out)
     }
 
     /// Follows up the command lines that were not ready yet.
@@ -155,7 +260,8 @@ impl Collector {
 
     /// Emits everything still held back, at the end of a recording.
     pub fn flush(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
-        for exit in std::mem::take(&mut self.held_exits) {
+        let held = std::mem::take(&mut self.held_exits);
+        for exit in held {
             self.emit_exit(exit, out)?;
         }
         self.retry_command_lines(out, true)
@@ -163,7 +269,7 @@ impl Collector {
 
     /// Pids the build started that have not been seen to exit.
     pub fn live_pids(&self) -> impl Iterator<Item = i32> + '_ {
-        self.processes.iter().copied()
+        self.processes.keys().copied()
     }
 
     fn ticks(&self, nanoseconds: u64) -> u64 {
@@ -183,12 +289,52 @@ impl Collector {
         kdebug::command_line(pid, &mut self.argv_buffer)
     }
 
+    fn cancel_exit(&mut self, pid: i32) {
+        self.held_exits.retain(|exit| exit.pid != pid);
+    }
+
+    fn believe_exits(
+        &mut self,
+        now: u64,
+        out: &mut impl FnMut(Message) -> io::Result<()>,
+    ) -> io::Result<()> {
+        while let Some(index) = self
+            .held_exits
+            .iter()
+            .position(|exit| exit.believe_after <= now)
+        {
+            let exit = self.held_exits.remove(index);
+            self.emit_exit(exit, out)?;
+        }
+        Ok(())
+    }
+
+    fn emit_exit(
+        &mut self,
+        exit: HeldExit,
+        out: &mut impl FnMut(Message) -> io::Result<()>,
+    ) -> io::Result<()> {
+        if exit.pid != self.root {
+            self.processes.remove(&exit.pid);
+        }
+        self.names.remove(&exit.pid);
+        out(Message {
+            mach_time: exit.mach_time,
+            pid: exit.pid,
+            ppid: 0,
+            event: Event::Exit { stat: exit.stat },
+        })
+    }
+
     fn exec(
         &mut self,
         pid: i32,
         mach_time: u64,
         out: &mut impl FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
+        if let Some(state) = self.processes.get_mut(&pid) {
+            state.fds.retain(|_, (_, close_on_exec)| !*close_on_exec);
+        }
         match self.command_line(pid, mach_time) {
             Ok((executable, argv)) => self.emit_exec(pid, mach_time, executable, argv, out),
             // Either the image is still being set up, or the process is already
@@ -240,53 +386,167 @@ impl Collector {
         argv: Vec<String>,
         out: &mut impl FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
+        let cwd = self
+            .processes
+            .get(&pid)
+            .and_then(|state| state.cwd.clone())
+            .unwrap_or_default();
         out(Message {
             mach_time,
             pid,
             ppid: 0,
-            event: Event::Exec { argv, executable },
+            event: Event::Exec {
+                argv,
+                cwd,
+                executable,
+            },
         })
     }
 
-    fn cancel_exit(&mut self, pid: i32) {
-        self.held_exits.retain(|exit| exit.pid != pid);
-    }
-
-    fn believe_exits(
+    fn finish_call(
         &mut self,
-        now: u64,
+        pid: i32,
+        mach_time: u64,
+        call: &Call,
+        returned: i64,
         out: &mut impl FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
-        while let Some(index) = self
-            .held_exits
-            .iter()
-            .position(|exit| exit.believe_after <= now)
-        {
-            let exit = self.held_exits.remove(index);
-            self.emit_exit(exit, out)?;
+        let code = call.code;
+        if is_open(code) {
+            let at = matches!(code, OPENAT | OPENAT_NOCANCEL | OPENAT_DPROTECTED);
+            let flags = match code {
+                GUARDED_OPEN | GUARDED_OPEN_DPROTECTED => call.args[3],
+                _ if at => call.args[2],
+                _ => call.args[1],
+            };
+            let directory = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
+            let path = match call.lookups.first() {
+                Some(raw) => self.resolve(pid, raw, directory),
+                // Opening "/" is the one open the kernel logs no lookup for.
+                None if flags & O_DIRECTORY != 0 => Some("/".to_owned()),
+                None => return Ok(()),
+            };
+            if let Some(state) = self.processes.get_mut(&pid) {
+                state
+                    .fds
+                    .insert(returned as i32, (path.clone(), flags & O_CLOEXEC != 0));
+            }
+            if let Some(path) = path
+                && self.file_events
+            {
+                out(Message {
+                    mach_time,
+                    pid,
+                    ppid: 0,
+                    event: Event::Open {
+                        path,
+                        flags: linux_open_flags(flags),
+                        fd: returned as i32,
+                    },
+                })?;
+            }
+            return Ok(());
+        }
+        match code {
+            CHDIR => {
+                if let Some(raw) = call.lookups.first().cloned() {
+                    let resolved = self.resolve(pid, &raw, None);
+                    if let Some(state) = self.processes.get_mut(&pid) {
+                        state.cwd = resolved;
+                    }
+                }
+            }
+            FCHDIR => {
+                let path = self.fd_path(pid, call.args[0]);
+                if let Some(state) = self.processes.get_mut(&pid) {
+                    state.cwd = path;
+                }
+            }
+            CLOSE | CLOSE_NOCANCEL | GUARDED_CLOSE => {
+                if let Some(state) = self.processes.get_mut(&pid) {
+                    state.fds.remove(&(call.args[0] as i32));
+                }
+            }
+            DUP | DUP2 | FCNTL | FCNTL_NOCANCEL => {
+                let (from, to, close_on_exec) = match code {
+                    DUP => (call.args[0], returned, false),
+                    DUP2 => (call.args[0], call.args[1] as i64, false),
+                    _ => match call.args[1] {
+                        F_DUPFD => (call.args[0], returned, false),
+                        F_DUPFD_CLOEXEC => (call.args[0], returned, true),
+                        F_SETFD => {
+                            if let Some(state) = self.processes.get_mut(&pid)
+                                && let Some(entry) = state.fds.get_mut(&(call.args[0] as i32))
+                            {
+                                entry.1 = call.args[2] & 1 != 0;
+                            }
+                            return Ok(());
+                        }
+                        _ => return Ok(()),
+                    },
+                };
+                let path = self.fd_path(pid, from);
+                if let Some(state) = self.processes.get_mut(&pid) {
+                    state.fds.insert(to as i32, (path, close_on_exec));
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
 
-    fn emit_exit(
-        &mut self,
-        exit: HeldExit,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
-    ) -> io::Result<()> {
-        if exit.pid != self.root {
-            self.processes.remove(&exit.pid);
+    fn fd_path(&self, pid: i32, fd: u64) -> Option<String> {
+        self.processes
+            .get(&pid)?
+            .fds
+            .get(&(fd as i32))
+            .and_then(|(path, _)| path.clone())
+    }
+
+    /// Resolves a path as the kernel reported it.
+    fn resolve(&self, pid: i32, raw: &str, directory: Option<u64>) -> Option<String> {
+        if raw.starts_with('/') {
+            return Some(normalize(raw));
         }
-        self.names.remove(&exit.pid);
-        out(Message {
-            mach_time: exit.mach_time,
-            pid: exit.pid,
-            ppid: 0,
-            event: Event::Exit { stat: exit.stat },
-        })
+        let base = match directory {
+            Some(fd) => self.fd_path(pid, fd)?,
+            None => self.processes.get(&pid)?.cwd.clone()?,
+        };
+        Some(normalize(&format!("{base}/{raw}")))
     }
 }
 
-/// Names arrive as little-endian words packed with the bytes of the name.
+fn is_open(code: u32) -> bool {
+    matches!(
+        code,
+        OPEN | OPEN_NOCANCEL
+            | OPEN_EXTENDED
+            | OPEN_DPROTECTED
+            | GUARDED_OPEN
+            | GUARDED_OPEN_DPROTECTED
+            | OPENAT
+            | OPENAT_NOCANCEL
+            | OPENAT_DPROTECTED
+    )
+}
+
+fn is_followed(code: u32) -> bool {
+    is_open(code)
+        || matches!(
+            code,
+            CHDIR
+                | FCHDIR
+                | CLOSE
+                | CLOSE_NOCANCEL
+                | GUARDED_CLOSE
+                | DUP
+                | DUP2
+                | FCNTL
+                | FCNTL_NOCANCEL
+        )
+}
+
+/// Paths arrive as little-endian words packed with the bytes of the name.
 fn decode_string(words: &[u64]) -> String {
     let mut bytes = Vec::with_capacity(words.len() * 8);
     for word in words {
@@ -299,11 +559,39 @@ fn decode_string(words: &[u64]) -> String {
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
 
+/// Resolves `.` and `..` textually, and the data volume's firmlinked spelling,
+/// which names the same files.
+fn normalize(path: &str) -> String {
+    let path = path
+        .strip_prefix("/System/Volumes/Data")
+        .filter(|rest| rest.starts_with('/'))
+        .unwrap_or(path);
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    let mut resolved = String::with_capacity(path.len() + 1);
+    for part in parts {
+        resolved.push('/');
+        resolved.push_str(part);
+    }
+    if resolved.is_empty() {
+        resolved.push('/');
+    }
+    resolved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Builds the trace events a build produces, for tests.
+    /// Builds the trace events a syscall produces, for tests.
     struct Stream {
         events: Vec<kdebug::Event>,
         time: u64,
@@ -328,16 +616,38 @@ mod tests {
             self
         }
 
-        /// An execution: the kernel reports it, then names the program.
-        fn exec(&mut self, thread: u64, pid: i32, name: &str) -> &mut Self {
-            let mut bytes = name.as_bytes().to_vec();
-            bytes.resize(32, 0);
-            let mut words = [0; 4];
-            for (word, chunk) in words.iter_mut().zip(bytes.chunks(8)) {
-                *word = u64::from_le_bytes(chunk.try_into().expect("8 bytes"));
+        fn lookup(&mut self, thread: u64, vnode: u64, path: &str) -> &mut Self {
+            let mut words = vec![vnode];
+            let mut bytes = path.as_bytes().to_vec();
+            bytes.push(0);
+            while !bytes.len().is_multiple_of(8) {
+                bytes.push(0);
             }
-            self.push(thread, DATA_EXEC, [pid as u64, 0, 0, 0]);
-            self.push(thread, STRING_EXEC, words)
+            words.extend(
+                bytes
+                    .chunks(8)
+                    .map(|chunk| u64::from_le_bytes(chunk.try_into().expect("8 bytes"))),
+            );
+            // A lookup is one start record and then continuations.
+            let first: [u64; 4] = [
+                words[0],
+                words[1],
+                *words.get(2).unwrap_or(&0),
+                *words.get(3).unwrap_or(&0),
+            ];
+            if words.len() <= 4 {
+                self.push(thread, VFS_LOOKUP | 3, first)
+            } else {
+                self.push(thread, VFS_LOOKUP | 1, first);
+                let rest = &words[4..];
+                for (index, chunk) in rest.chunks(4).enumerate() {
+                    let mut args = [0; 4];
+                    args[..chunk.len()].copy_from_slice(chunk);
+                    let last = (index + 1) * 4 >= rest.len();
+                    self.push(thread, VFS_LOOKUP | if last { 2 } else { 0 }, args);
+                }
+                self
+            }
         }
 
         fn collect(&self, collector: &mut Collector) -> Vec<Message> {
@@ -367,55 +677,80 @@ mod tests {
             denom: 1,
             origin_wall: std::time::SystemTime::now(),
         };
-        let mut collector = Collector::new(100, clock);
+        let mut collector = Collector::new(100, "/src".into(), clock, true);
         collector.seed_threads([(10, 100)]);
         collector
     }
 
     #[test]
-    fn an_execution_whose_command_line_is_gone_is_named_after_its_program() {
+    fn resolves_a_relative_open_against_the_working_directory() {
         let mut stream = Stream::new();
-        stream.exec(10, 100, "make");
-        let mut collector = collector();
-        let messages = stream.collect(&mut collector);
+        stream
+            .push(10, OPEN | 1, [0, 0x601, 0o644, 0])
+            .lookup(10, 0x1111, "out/a.o")
+            .push(10, OPEN | 2, [0, 5, 0, 0]);
+        let messages = stream.collect(&mut collector());
         assert_eq!(
             messages,
             [Message {
-                mach_time: 1_010,
+                mach_time: 1_030,
                 pid: 100,
                 ppid: 0,
-                event: Event::Exec {
-                    argv: vec!["make".into()],
-                    executable: "make".into(),
+                event: Event::Open {
+                    path: "/src/out/a.o".into(),
+                    // O_WRONLY | O_CREAT | O_TRUNC
+                    flags: 0o1101,
+                    fd: 5,
                 },
             }]
         );
-        assert_eq!(collector.unnamed, 1);
     }
 
     #[test]
-    fn a_new_process_is_followed_and_its_parent_reported() {
+    fn follows_chdir_and_directory_descriptors() {
+        let mut stream = Stream::new();
+        // chdir("sub"), then openat(fd of "/src/dir", "b.o").
+        stream
+            .push(10, CHDIR | 1, [0, 0, 0, 0])
+            .lookup(10, 0x2222, "sub")
+            .push(10, CHDIR | 2, [0, 0, 0, 0])
+            .push(10, OPEN | 1, [0, O_DIRECTORY, 0, 0])
+            .lookup(10, 0x3333, "/src/dir")
+            .push(10, OPEN | 2, [0, 7, 0, 0])
+            .push(10, OPENAT | 1, [7, 0, 0, 0])
+            .lookup(10, 0x4444, "b.o")
+            .push(10, OPENAT | 2, [0, 8, 0, 0])
+            // A plain open resolves against the new working directory.
+            .push(10, OPEN | 1, [0, 0x601, 0, 0])
+            .lookup(10, 0x9999, "c.o")
+            .push(10, OPEN | 2, [0, 9, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        let paths: Vec<_> = messages
+            .iter()
+            .filter_map(|message| match &message.event {
+                Event::Open { path, .. } => Some(path.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(paths, ["/src/dir", "/src/dir/b.o", "/src/sub/c.o"]);
+    }
+
+    #[test]
+    fn a_new_process_inherits_and_is_reported() {
         let mut stream = Stream::new();
         stream
             .push(10, NEWTHREAD, [11, 200, 0, 0])
-            .exec(11, 200, "cc");
+            .push(11, OPEN | 1, [0, 0, 0, 0])
+            .lookup(11, 0x6666, "child.txt")
+            .push(11, OPEN | 2, [0, 3, 0, 0]);
         let messages = stream.collect(&mut collector());
         assert!(matches!(messages[0].event, Event::Fork { child: 200 }));
         assert_eq!(messages[0].pid, 100);
         assert!(matches!(
             &messages[1].event,
-            Event::Exec { executable, .. } if executable == "cc"
+            Event::Open { path, .. } if path == "/src/child.txt"
         ));
         assert_eq!(messages[1].pid, 200);
-    }
-
-    #[test]
-    fn unrelated_processes_are_ignored() {
-        let mut stream = Stream::new();
-        stream.exec(99, 999, "someone-else");
-        let mut collector = collector();
-        collector.seed_threads([(99, 999)]);
-        assert_eq!(stream.collect(&mut collector), []);
     }
 
     #[test]
@@ -424,7 +759,9 @@ mod tests {
         let mut stream = Stream::new();
         stream
             .push(10, PROC_EXIT | 2, [100, 0, 0, 0])
-            .exec(10, 100, "still-here");
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x7777, "still-here.txt")
+            .push(10, OPEN | 2, [0, 3, 0, 0]);
         let messages = stream.collect(&mut collector());
         assert!(
             !messages
@@ -446,5 +783,24 @@ mod tests {
                 event: Event::Exit { stat: 256 },
             }]
         );
+    }
+
+    #[test]
+    fn unrelated_processes_are_ignored() {
+        let mut stream = Stream::new();
+        stream
+            .push(99, OPEN | 1, [0, 0x601, 0, 0])
+            .lookup(99, 0x8888, "/elsewhere/x")
+            .push(99, OPEN | 2, [0, 3, 0, 0]);
+        let mut collector = collector();
+        collector.seed_threads([(99, 999)]);
+        assert_eq!(stream.collect(&mut collector), []);
+    }
+
+    #[test]
+    fn normalizes_paths() {
+        assert_eq!(normalize("/a/b/../c/./d"), "/a/c/d");
+        assert_eq!(normalize("/a/../.."), "/");
+        assert_eq!(normalize("/System/Volumes/Data/Users/x"), "/Users/x");
     }
 }

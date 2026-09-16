@@ -1,12 +1,12 @@
 // Copyright 2026 The Buildprof Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Turns the collector's events into the same process segments the Linux
-//! tracer records.
+//! Turns the collector's events into the same process segments and file opens
+//! the Linux tracer records.
 
 use super::event::{Event, Message};
 use crate::blind_spots::BlindSpots;
-use crate::model::{Process, Segment};
+use crate::model::{FileOpen, Process, Segment};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -24,6 +24,7 @@ const FAILED_SPAWN_STAT: i32 = 1;
 pub trait Sink {
     fn process_started(&mut self, pid: i32) -> io::Result<()>;
     fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()>;
+    fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()>;
 }
 
 /// The trace being recorded.
@@ -37,6 +38,9 @@ impl Sink for TraceSink<'_> {
     }
     fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()> {
         self.writer.segment(process, segment)
+    }
+    fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()> {
+        self.writer.file_open(pid, open)
     }
 }
 
@@ -167,8 +171,24 @@ impl<'a, S: Sink> Tracker<'a, S> {
                     self.start_process(child, pid, timestamp_ns);
                 }
             }
-            Event::Exec { argv, executable } => self.exec(pid, timestamp_ns, argv, executable)?,
+            Event::Exec {
+                argv,
+                cwd,
+                executable,
+            } => self.exec(pid, timestamp_ns, argv, cwd, executable)?,
             Event::Exit { stat } => self.exit(pid, timestamp_ns, stat)?,
+            Event::Open { path, flags, fd } => {
+                announce(self.sink, &mut self.announced, pid)?;
+                self.sink.file_open(
+                    pid,
+                    &FileOpen {
+                        timestamp_ns,
+                        path,
+                        flags,
+                        fd,
+                    },
+                )?
+            }
         }
         Ok(())
     }
@@ -230,6 +250,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
         pid: i32,
         timestamp_ns: u64,
         mut argv: Vec<String>,
+        cwd: String,
         executable: String,
     ) -> io::Result<()> {
         if argv.is_empty() {
@@ -256,7 +277,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
                     end_ns: 0,
                     name,
                     command,
-                    cwd: String::new(),
+                    cwd,
                     exit_code: None,
                 },
             );
@@ -274,6 +295,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
             state.process.execed = true;
             state.segment.name = name;
             state.segment.command = command;
+            state.segment.cwd = cwd;
         }
         Ok(())
     }
@@ -326,7 +348,7 @@ mod tests {
         }
         fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()> {
             self.0.push(format!(
-                "segment {} parent={} build_parent={} execed={} {}..{} {:?} exit={:?}",
+                "segment {} parent={} build_parent={} execed={} {}..{} {:?} cwd={} exit={:?}",
                 process.pid,
                 process.parent_pid,
                 process.build_parent_pid,
@@ -334,7 +356,15 @@ mod tests {
                 segment.start_ns,
                 segment.end_ns,
                 segment.command,
+                segment.cwd,
                 segment.exit_code
+            ));
+            Ok(())
+        }
+        fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()> {
+            self.0.push(format!(
+                "open {pid} {} {} flags={:o}",
+                open.timestamp_ns, open.path, open.flags
             ));
             Ok(())
         }
@@ -359,9 +389,10 @@ mod tests {
         }
     }
 
-    fn exec(argv: &[&str]) -> Event {
+    fn exec(argv: &[&str], cwd: &str) -> Event {
         Event::Exec {
             argv: argv.iter().map(|arg| (*arg).to_owned()).collect(),
+            cwd: cwd.to_owned(),
             executable: format!("/usr/bin/{}", argv[0]),
         }
     }
@@ -386,15 +417,25 @@ mod tests {
     fn records_a_build_tree() {
         let mut records = Records::default();
         let mut blind_spots = BlindSpots::default();
-        let mut tracker = tracker(&mut records, &mut blind_spots, "make");
+        let mut tracker = tracker(&mut records, &mut blind_spots, "make -j2");
         for message in [
-            at(1001, 10, 1, exec(&["make", "-j2"])),
+            at(1001, 10, 1, exec(&["make", "-j2"], "/src")),
             at(1010, 10, 1, Event::Fork { child: 11 }),
             // A child started with posix_spawn is claimed through its parent.
-            at(1015, 12, 10, exec(&["cc", "-c", "a.c"])),
-            at(1020, 11, 10, exec(&["sh", "-c", "true"])),
+            at(1015, 12, 10, exec(&["cc", "-c", "a.c"], "/src")),
+            at(1020, 11, 10, exec(&["sh", "-c", "true"], "/src")),
+            at(
+                1030,
+                12,
+                10,
+                Event::Open {
+                    path: "/src/a.o".into(),
+                    flags: 0o1101,
+                    fd: 5,
+                },
+            ),
             at(1040, 12, 10, Event::Exit { stat: 0 }),
-            at(1041, 99, 1, exec(&["unrelated"])),
+            at(1041, 99, 1, exec(&["unrelated"], "/")),
             at(1050, 11, 10, Event::Exit { stat: 2 << 8 }),
             at(1060, 10, 1, Event::Exit { stat: 0 }),
         ] {
@@ -406,11 +447,12 @@ mod tests {
             records.0,
             [
                 "start 12",
-                r#"segment 12 parent=10 build_parent=10 execed=true 15..40 "cc -c a.c" exit=Some(0)"#,
+                "open 12 30 /src/a.o flags=1101",
+                r#"segment 12 parent=10 build_parent=10 execed=true 15..40 "cc -c a.c" cwd=/src exit=Some(0)"#,
                 "start 11",
-                r#"segment 11 parent=10 build_parent=10 execed=true 10..50 "sh -c true" exit=Some(2)"#,
+                r#"segment 11 parent=10 build_parent=10 execed=true 10..50 "sh -c true" cwd=/src exit=Some(2)"#,
                 "start 10",
-                r#"segment 10 parent=0 build_parent=0 execed=true 0..60 "make -j2" exit=Some(0)"#,
+                r#"segment 10 parent=0 build_parent=0 execed=true 0..60 "make -j2" cwd=/src exit=Some(0)"#,
             ]
         );
     }
@@ -421,8 +463,8 @@ mod tests {
         let mut blind_spots = BlindSpots::default();
         let mut tracker = tracker(&mut records, &mut blind_spots, "sh");
         for message in [
-            at(1001, 10, 1, exec(&["sh", "-c", "true"])),
-            at(1005, 10, 1, exec(&["cc", "-c", "a.c"])),
+            at(1001, 10, 1, exec(&["sh", "-c", "exec cc"], "/")),
+            at(1005, 10, 1, exec(&["cc"], "/")),
             at(1009, 10, 1, Event::Exit { stat: 9 }),
         ] {
             tracker.handle(message).unwrap();
@@ -431,8 +473,8 @@ mod tests {
         assert_eq!(
             records.0[1..],
             [
-                r#"segment 10 parent=0 build_parent=0 execed=true 0..5 "sh -c true" exit=None"#,
-                r#"segment 10 parent=0 build_parent=0 execed=true 5..9 "cc -c a.c" exit=Some(137)"#,
+                r#"segment 10 parent=0 build_parent=0 execed=true 0..5 "sh -c exec cc" cwd=/ exit=None"#,
+                r#"segment 10 parent=0 build_parent=0 execed=true 5..9 "cc" cwd=/ exit=Some(137)"#,
             ]
         );
     }
@@ -443,7 +485,7 @@ mod tests {
         let mut blind_spots = BlindSpots::default();
         let mut tracker = tracker(&mut records, &mut blind_spots, "make");
         for message in [
-            at(1001, 10, 1, exec(&["make", "-j2"])),
+            at(1001, 10, 1, exec(&["make"], "/src")),
             // posix_spawnp trying a PATH directory without the program.
             at(1002, 10, 1, Event::Fork { child: 13 }),
             at(1003, 13, 10, Event::Exit { stat: 1 }),
