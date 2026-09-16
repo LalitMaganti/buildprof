@@ -13,6 +13,24 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# A compiler launcher in front of the toolchain runs as part of the build and
+# lands in the recording, so a diff test would describe whichever launcher the
+# machine happens to have installed. Tests that want one put it on PATH
+# themselves.
+LAUNCHERS = frozenset({"ccache", "distcc", "icecc", "sccache"})
+
+
+@pytest.fixture
+def plain_environment() -> dict[str, str]:
+    """The environment with any compiler launcher taken off `PATH`."""
+    directories = [
+        directory
+        for directory in os.environ.get("PATH", "").split(os.pathsep)
+        if not LAUNCHERS & set(Path(directory).parts)
+    ]
+    return dict(os.environ, LC_ALL="C", PATH=os.pathsep.join(directories))
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--update-expectations",
