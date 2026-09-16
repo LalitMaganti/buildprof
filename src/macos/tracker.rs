@@ -1,12 +1,12 @@
 // Copyright 2026 The Buildprof Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Turns the collector's events into the same process segments and file opens
-//! the Linux tracer records.
+//! Turns the collector's events into the same process segments, file opens and
+//! renames the Linux tracer records.
 
 use super::event::{Event, Message};
 use crate::blind_spots::BlindSpots;
-use crate::model::{FileOpen, Process, Segment};
+use crate::model::{FileOpen, Process, Rename, Segment};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -25,6 +25,7 @@ pub trait Sink {
     fn process_started(&mut self, pid: i32) -> io::Result<()>;
     fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()>;
     fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()>;
+    fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()>;
 }
 
 /// The trace being recorded.
@@ -41,6 +42,9 @@ impl Sink for TraceSink<'_> {
     }
     fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()> {
         self.writer.file_open(pid, open)
+    }
+    fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()> {
+        self.writer.rename(pid, rename)
     }
 }
 
@@ -186,6 +190,17 @@ impl<'a, S: Sink> Tracker<'a, S> {
                         path,
                         flags,
                         fd,
+                    },
+                )?
+            }
+            Event::Rename { from, to } => {
+                announce(self.sink, &mut self.announced, pid)?;
+                self.sink.rename(
+                    pid,
+                    &Rename {
+                        timestamp_ns,
+                        from,
+                        to,
                     },
                 )?
             }
@@ -366,6 +381,11 @@ mod tests {
                 "open {pid} {} {} flags={:o}",
                 open.timestamp_ns, open.path, open.flags
             ));
+            Ok(())
+        }
+        fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()> {
+            self.0
+                .push(format!("rename {pid} {} -> {}", rename.from, rename.to));
             Ok(())
         }
     }
