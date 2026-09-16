@@ -28,7 +28,8 @@ def release_tree(tmp_path: Path) -> Path:
             description: Buildprof release tag to install.
             default: v0.2.5
     '''))
-    (tmp_path / "README.md").write_text(dedent(f'''\
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/usage.md").write_text(dedent(f'''\
         steps:
           - uses: LalitMaganti/buildprof@{release["PREVIEW_REF"]} {release["PREVIEW_NOTE"]}
     '''))
@@ -39,32 +40,34 @@ def release_tree(tmp_path: Path) -> Path:
 def test_prepare_next_release(release_tree: Path, version: str) -> None:
     cargo = release_tree / "Cargo.toml"
     cargo.write_text(cargo.read_text().replace('version = "0.2.5"', f'version = "{version}"', 1))
-    before = {path: path.read_text() for path in release_tree.iterdir()}
+    before = {
+        path: path.read_text() for path in release_tree.rglob("*") if path.is_file()
+    }
 
     assert set(prepare(release_tree, check=True, allow_preview=True)) == {
-        "action.yml", "README.md"
+        "action.yml", "docs/usage.md"
     }
     assert all(path.read_text() == text for path, text in before.items())
     prepare(release_tree, check=False, allow_preview=False)
 
     assert f"    default: v{version}\n" in (release_tree / "action.yml").read_text()
-    readme = (release_tree / "README.md").read_text()
-    assert f"uses: LalitMaganti/buildprof@v{version}\n" in readme
-    assert release["PREVIEW_NOTE"] not in readme
+    usage = (release_tree / "docs/usage.md").read_text()
+    assert f"uses: LalitMaganti/buildprof@v{version}\n" in usage
+    assert release["PREVIEW_NOTE"] not in usage
     assert prepare(release_tree, check=True, allow_preview=False) == []
     assert prepare(release_tree, check=False, allow_preview=False) == []
 
 
 def test_preview_is_not_releasable(release_tree: Path) -> None:
     assert prepare(release_tree, check=True, allow_preview=True) == []
-    assert prepare(release_tree, check=True, allow_preview=False) == ["README.md"]
+    assert prepare(release_tree, check=True, allow_preview=False) == ["docs/usage.md"]
 
 
 @pytest.mark.parametrize(
     ("name", "original", "replacement"),
     [
         ("action.yml", "default: v0.2.5", "default: v0.1.0"),
-        ("README.md", "@v0.2.5", "@v0.1.0"),
+        ("docs/usage.md", "@v0.2.5", "@v0.1.0"),
     ],
 )
 def test_check_detects_drift(
@@ -78,8 +81,8 @@ def test_check_detects_drift(
 
 
 def test_invalid_documentation_does_not_partially_update(release_tree: Path) -> None:
-    readme = release_tree / "README.md"
-    readme.write_text("Missing the action example.\n")
+    usage = release_tree / "docs/usage.md"
+    usage.write_text("Missing the action example.\n")
     action = release_tree / "action.yml"
     action.write_text(action.read_text().replace("default: v0.2.5", "default: v0.1.0"))
     before = action.read_text()
