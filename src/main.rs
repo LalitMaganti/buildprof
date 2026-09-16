@@ -110,8 +110,6 @@ fn record(
         }
     };
 
-    // macOS recordings carry no file events yet.
-    let file_events = file_events && cfg!(target_os = "linux");
     if let Err(error) = writer.collection_options(file_events, compiler_traces) {
         error!("could not write recording options: {error}");
         return ExitCode::FAILURE;
@@ -128,7 +126,13 @@ fn record(
         file_events,
     );
     #[cfg(target_os = "macos")]
-    let result = macos::record(prepared, &command, &mut writer, &mut blind_spots);
+    let result = macos::record(
+        prepared,
+        &command,
+        &mut writer,
+        &mut blind_spots,
+        file_events,
+    );
     let write_result = writer.finish();
     let exit_code = match result {
         Ok(exit_code) => exit_code,
