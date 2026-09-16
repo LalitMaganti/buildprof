@@ -35,6 +35,9 @@ const GUARDED_OPEN_DPROTECTED: u32 = 0x040c_0790;
 const OPENAT: u32 = 0x040c_073c;
 const OPENAT_NOCANCEL: u32 = 0x040c_0740;
 const OPENAT_DPROTECTED: u32 = 0x040c_0368;
+const RENAME: u32 = 0x040c_0200;
+const RENAMEAT: u32 = 0x040c_0744;
+const RENAMEATX: u32 = 0x040c_07a0;
 const CHDIR: u32 = 0x040c_0030;
 const FCHDIR: u32 = 0x040c_0034;
 const CLOSE: u32 = 0x040c_0018;
@@ -448,6 +451,28 @@ impl Collector {
             return Ok(());
         }
         match code {
+            RENAME | RENAMEAT | RENAMEATX => {
+                if !self.file_events || call.lookups.len() < 2 {
+                    return Ok(());
+                }
+                // A rename looks up its source and then its destination.
+                let at = code != RENAME;
+                let last = call.lookups.len() - 1;
+                let (from_raw, to_raw) =
+                    (call.lookups[last - 1].clone(), call.lookups[last].clone());
+                let from_dir = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
+                let to_dir = at.then(|| call.args[2]).filter(|fd| *fd as i32 != AT_FDCWD);
+                let from = self.resolve(pid, &from_raw, from_dir);
+                let to = self.resolve(pid, &to_raw, to_dir);
+                if let (Some(from), Some(to)) = (from, to) {
+                    out(Message {
+                        mach_time,
+                        pid,
+                        ppid: 0,
+                        event: Event::Rename { from, to },
+                    })?;
+                }
+            }
             CHDIR => {
                 if let Some(raw) = call.lookups.first().cloned() {
                     let resolved = self.resolve(pid, &raw, None);
@@ -534,7 +559,10 @@ fn is_followed(code: u32) -> bool {
     is_open(code)
         || matches!(
             code,
-            CHDIR
+            RENAME
+                | RENAMEAT
+                | RENAMEATX
+                | CHDIR
                 | FCHDIR
                 | CLOSE
                 | CLOSE_NOCANCEL
@@ -733,6 +761,29 @@ mod tests {
             })
             .collect();
         assert_eq!(paths, ["/src/dir", "/src/dir/b.o", "/src/sub/c.o"]);
+    }
+
+    #[test]
+    fn reports_a_rename_with_both_paths_resolved() {
+        let mut stream = Stream::new();
+        stream
+            .push(10, RENAME | 1, [0, 0, 0, 0])
+            .lookup(10, 0x1234, "a-1234.o.tmp")
+            .lookup(10, 0x5678, "a.o")
+            .push(10, RENAME | 2, [0, 0, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        assert_eq!(
+            messages,
+            [Message {
+                mach_time: 1_040,
+                pid: 100,
+                ppid: 0,
+                event: Event::Rename {
+                    from: "/src/a-1234.o.tmp".into(),
+                    to: "/src/a.o".into(),
+                },
+            }]
+        );
     }
 
     #[test]

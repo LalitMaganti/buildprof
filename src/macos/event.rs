@@ -37,6 +37,10 @@ pub enum Event {
         flags: u64,
         fd: i32,
     },
+    Rename {
+        from: String,
+        to: String,
+    },
 }
 
 /// Darwin `open(2)` flags as the Linux numbers the trace format stores.
