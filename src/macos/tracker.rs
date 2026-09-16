@@ -11,6 +11,7 @@ use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
+use std::time::{Duration, SystemTime};
 
 const MINIMUM_SEGMENT_DURATION_NS: u64 = 1;
 const SIGNAL_EXIT_STATUS_OFFSET: u32 = 128;
@@ -45,6 +46,8 @@ pub struct Clock {
     pub origin: u64,
     pub numer: u32,
     pub denom: u32,
+    /// When the origin was, on the wall clock.
+    pub origin_wall: SystemTime,
 }
 
 // libc points at the mach2 crate for these; not worth a dependency for two calls.
@@ -57,6 +60,7 @@ impl Clock {
             origin: mach_now(),
             numer: timebase.numer.max(1),
             denom: timebase.denom.max(1),
+            origin_wall: SystemTime::now(),
         }
     }
 
@@ -72,6 +76,11 @@ impl Clock {
     /// Trace time units per nanosecond.
     pub fn ticks_per_ns(&self) -> f64 {
         f64::from(self.denom) / f64::from(self.numer)
+    }
+
+    /// When an event happened, on the wall clock.
+    pub fn wall(&self, mach_time: u64) -> SystemTime {
+        self.origin_wall + Duration::from_nanos(self.ns(mach_time))
     }
 }
 
@@ -158,7 +167,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
                     self.start_process(child, pid, timestamp_ns);
                 }
             }
-            Event::Exec { executable } => self.exec(pid, timestamp_ns, executable)?,
+            Event::Exec { argv, executable } => self.exec(pid, timestamp_ns, argv, executable)?,
             Event::Exit { stat } => self.exit(pid, timestamp_ns, stat)?,
         }
         Ok(())
@@ -216,13 +225,26 @@ impl<'a, S: Sink> Tracker<'a, S> {
         );
     }
 
-    fn exec(&mut self, pid: i32, timestamp_ns: u64, executable: String) -> io::Result<()> {
-        self.blind_spots.observe(std::slice::from_ref(&executable));
-        let name = Path::new(&executable)
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format!("pid:{pid}"));
-        let command = executable.clone();
+    fn exec(
+        &mut self,
+        pid: i32,
+        timestamp_ns: u64,
+        mut argv: Vec<String>,
+        executable: String,
+    ) -> io::Result<()> {
+        if argv.is_empty() {
+            argv.push(executable.clone());
+        }
+        self.blind_spots.observe(&argv);
+        let name = Path::new(
+            argv.first()
+                .filter(|arg| !arg.is_empty())
+                .unwrap_or(&executable),
+        )
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| format!("pid:{pid}"));
+        let command = argv.join(" ");
         let Some(state) = self.processes.get_mut(&pid) else {
             return Ok(());
         };
@@ -323,6 +345,7 @@ mod tests {
             origin: 1000,
             numer: 1,
             denom: 1,
+            origin_wall: SystemTime::UNIX_EPOCH,
         }
     }
 
@@ -336,9 +359,10 @@ mod tests {
         }
     }
 
-    fn exec(program: &str) -> Event {
+    fn exec(argv: &[&str]) -> Event {
         Event::Exec {
-            executable: format!("/usr/bin/{program}"),
+            argv: argv.iter().map(|arg| (*arg).to_owned()).collect(),
+            executable: format!("/usr/bin/{}", argv[0]),
         }
     }
 
@@ -364,13 +388,13 @@ mod tests {
         let mut blind_spots = BlindSpots::default();
         let mut tracker = tracker(&mut records, &mut blind_spots, "make");
         for message in [
-            at(1001, 10, 1, exec("make")),
+            at(1001, 10, 1, exec(&["make", "-j2"])),
             at(1010, 10, 1, Event::Fork { child: 11 }),
             // A child started with posix_spawn is claimed through its parent.
-            at(1015, 12, 10, exec("cc")),
-            at(1020, 11, 10, exec("sh")),
+            at(1015, 12, 10, exec(&["cc", "-c", "a.c"])),
+            at(1020, 11, 10, exec(&["sh", "-c", "true"])),
             at(1040, 12, 10, Event::Exit { stat: 0 }),
-            at(1041, 99, 1, exec("unrelated")),
+            at(1041, 99, 1, exec(&["unrelated"])),
             at(1050, 11, 10, Event::Exit { stat: 2 << 8 }),
             at(1060, 10, 1, Event::Exit { stat: 0 }),
         ] {
@@ -382,11 +406,11 @@ mod tests {
             records.0,
             [
                 "start 12",
-                r#"segment 12 parent=10 build_parent=10 execed=true 15..40 "/usr/bin/cc" exit=Some(0)"#,
+                r#"segment 12 parent=10 build_parent=10 execed=true 15..40 "cc -c a.c" exit=Some(0)"#,
                 "start 11",
-                r#"segment 11 parent=10 build_parent=10 execed=true 10..50 "/usr/bin/sh" exit=Some(2)"#,
+                r#"segment 11 parent=10 build_parent=10 execed=true 10..50 "sh -c true" exit=Some(2)"#,
                 "start 10",
-                r#"segment 10 parent=0 build_parent=0 execed=true 0..60 "/usr/bin/make" exit=Some(0)"#,
+                r#"segment 10 parent=0 build_parent=0 execed=true 0..60 "make -j2" exit=Some(0)"#,
             ]
         );
     }
@@ -397,8 +421,8 @@ mod tests {
         let mut blind_spots = BlindSpots::default();
         let mut tracker = tracker(&mut records, &mut blind_spots, "sh");
         for message in [
-            at(1001, 10, 1, exec("sh")),
-            at(1005, 10, 1, exec("cc")),
+            at(1001, 10, 1, exec(&["sh", "-c", "true"])),
+            at(1005, 10, 1, exec(&["cc", "-c", "a.c"])),
             at(1009, 10, 1, Event::Exit { stat: 9 }),
         ] {
             tracker.handle(message).unwrap();
@@ -407,8 +431,8 @@ mod tests {
         assert_eq!(
             records.0[1..],
             [
-                r#"segment 10 parent=0 build_parent=0 execed=true 0..5 "/usr/bin/sh" exit=None"#,
-                r#"segment 10 parent=0 build_parent=0 execed=true 5..9 "/usr/bin/cc" exit=Some(137)"#,
+                r#"segment 10 parent=0 build_parent=0 execed=true 0..5 "sh -c true" exit=None"#,
+                r#"segment 10 parent=0 build_parent=0 execed=true 5..9 "cc -c a.c" exit=Some(137)"#,
             ]
         );
     }
@@ -419,7 +443,7 @@ mod tests {
         let mut blind_spots = BlindSpots::default();
         let mut tracker = tracker(&mut records, &mut blind_spots, "make");
         for message in [
-            at(1001, 10, 1, exec("make")),
+            at(1001, 10, 1, exec(&["make", "-j2"])),
             // posix_spawnp trying a PATH directory without the program.
             at(1002, 10, 1, Event::Fork { child: 13 }),
             at(1003, 13, 10, Event::Exit { stat: 1 }),
@@ -441,6 +465,7 @@ mod tests {
             origin: 100,
             numer: 125,
             denom: 3,
+            origin_wall: SystemTime::UNIX_EPOCH,
         };
         assert_eq!(clock.ns(103), 125);
         assert_eq!(clock.ns(50), 0, "events before the origin clamp to it");

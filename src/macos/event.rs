@@ -20,8 +20,9 @@ pub enum Event {
     Fork {
         child: i32,
     },
-    /// The program a process is now running.
+    /// What a process is now running.
     Exec {
+        argv: Vec<String>,
         executable: String,
     },
     /// A `wait(2)` status.
