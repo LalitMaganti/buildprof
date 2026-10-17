@@ -7,6 +7,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-10-17
+
+### Fixed
+
+- Builds no longer run with `SIGPIPE` ignored. Buildprof passed its own
+  ignored `SIGPIPE` on to the command it recorded, so pipelines such as
+  `sort | head -n 1` printed "Broken pipe" errors instead of exiting quietly.
+
 ## [0.2.7] - 2026-09-16
 
 ### Fixed
