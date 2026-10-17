@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import signal
 import subprocess
+import sys
 import tomllib
 
 import pytest
@@ -78,6 +80,14 @@ def test_requested_output_path_is_used(run_trace, process_fixture: Path):
     result, trace = run_trace(process_fixture, "single", name="chosen.pftrace")
     assert result.returncode == 0
     assert load_perfetto(trace)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="reads /proc")
+def test_traced_command_does_not_inherit_ignored_sigpipe(run_trace):
+    result, _ = run_trace("sh", "-c", "grep SigIgn /proc/self/status")
+    assert result.returncode == 0
+    ignored = int(result.stdout.split()[-1], 16)
+    assert not ignored & (1 << (signal.SIGPIPE - 1))
 
 
 def test_command_exit_status_is_returned_and_trace_is_written(
