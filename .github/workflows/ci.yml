@@ -127,7 +127,7 @@ jobs:
         id: installed
         uses: ./
         with:
-          version: v0.2.6
+          version: v0.2.7
           artifact-name: action-installed-${{ matrix.runner }}
           command: cmake --version
 
