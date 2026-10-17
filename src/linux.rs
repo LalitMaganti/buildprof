@@ -557,6 +557,8 @@ fn make_argv(command: &[OsString]) -> io::Result<Vec<CString>> {
 
 fn child_exec(argv: &[CString], compilers: &Capture, file_events: bool) -> ! {
     unsafe {
+        // Rust ignores SIGPIPE and exec preserves ignored signals.
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
         compilers.configure_child();
         if libc::ptrace(
             TRACEME,
