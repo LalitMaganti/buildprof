@@ -76,7 +76,19 @@ runs:
 
         EOF
           if [[ -n "$BUILDPROF_ARTIFACT_URL" ]]; then
-            echo "[Download recording]($BUILDPROF_ARTIFACT_URL) and open it at https://buildprof.lalitm.com."
+            cat <<EOF
+        Open the recording on your own machine:
+
+        \`\`\`
+        buildprof open $BUILDPROF_ARTIFACT_URL
+        \`\`\`
+
+        This needs Buildprof (\`curl -fsSL https://buildprof.lalitm.com/install.sh | sh\`, or see
+        [other ways to install it](https://github.com/LalitMaganti/buildprof#install)) and the
+        [GitHub CLI](https://cli.github.com), signed in with \`gh auth login\`. Or
+        [download the recording]($BUILDPROF_ARTIFACT_URL), unzip it and open it at
+        https://buildprof.lalitm.com.
+        EOF
           else
             echo 'No recording artifact was uploaded. See the step logs for details.'
           fi

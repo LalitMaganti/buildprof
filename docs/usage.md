@@ -26,8 +26,16 @@ steps:
         cmake --build build -j2
 ```
 
-The job summary links to the recording artifact, including when the build
-fails. Download it and open it in [the web UI](https://buildprof.lalitm.com).
+The job summary gives the command that opens the recording, including when the
+build fails:
+
+```bash
+buildprof open https://github.com/OWNER/REPO/actions/runs/RUN/artifacts/ID
+```
+
+This downloads the artifact with the [GitHub CLI](https://cli.github.com), so
+run `gh auth login` first. You can also download the artifact from the summary,
+unzip it, and open it in [the web UI](https://buildprof.lalitm.com).
 See [action inputs](../action.yml) for version and retention settings; use a
 unique `artifact-name` for each matrix entry. For upgrades, use release tags
 or release SHAs with Dependabot (see [action releases](../RELEASING.md#github-action-releases)).
@@ -39,6 +47,10 @@ Open an existing recording later with:
 ```bash
 buildprof open clean-build.buildprof
 ```
+
+`buildprof open` also takes a URL. A GitHub Actions artifact URL is downloaded
+with the GitHub CLI; any other URL is downloaded with `curl`. Either way the
+recording is served from localhost like a local file and deleted afterwards.
 
 buildprof.lalitm.com only delivers the UI itself. Your browser fetches the
 recording from localhost and processes it entirely in the page; no trace data
