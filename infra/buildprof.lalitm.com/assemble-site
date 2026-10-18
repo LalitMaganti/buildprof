@@ -127,11 +127,14 @@ def main() -> int:
     troubleshooting = (
         "https://github.com/LalitMaganti/buildprof/blob/main/docs/troubleshooting.md"
     )
+    data_loss = "https://github.com/LalitMaganti/buildprof/blob/main/docs/data-loss.md"
     (site / "_redirects").write_text(
         "/install.sh https://github.com/LalitMaganti/buildprof/releases/latest/download/buildprof-installer.sh 302\n"
         f"/diagnose/containers {troubleshooting}#builds-inside-docker-containers 302\n"
         f"/diagnose/daemons {troubleshooting}#bazel-gradle-and-other-daemon-build-systems 302\n"
         f"/diagnose/podman {troubleshooting}#use-podman 302\n"
+        f"/diagnose/dropped-events {data_loss}#dropped-events 302\n"
+        f"/diagnose/unnamed-processes {data_loss}#processes-named-after-their-program 302\n"
     )
 
     if args.headers is not None:

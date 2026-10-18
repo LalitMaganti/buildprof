@@ -217,6 +217,8 @@ musl. The musl build is the one to mount into a container.
   - [Build systems](docs/build-systems.md): what the conformance suite covers.
   - [Troubleshooting](docs/troubleshooting.md): daemon build systems and
     containers.
+  - [Data loss](docs/data-loss.md): what a recording can miss and how you
+    can tell.
 - Under the hood:
   - [How it works](docs/internals.md): tracing, the trace format, its
     compatibility rules, and self-hosting the UI.

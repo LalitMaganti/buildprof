@@ -17,7 +17,7 @@
 use super::event::{Event, Message, linux_open_flags};
 use super::kdebug;
 use super::tracker::Clock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::time::{Duration, SystemTime};
 
@@ -55,6 +55,7 @@ const FCNTL_NOCANCEL: u32 = 0x040c_0658;
 const AT_FDCWD: i32 = -2;
 const O_CLOEXEC: u64 = 0x0100_0000;
 const O_DIRECTORY: u64 = 0x0010_0000;
+const O_CREAT: u64 = 0x0200;
 const F_DUPFD: u64 = 0;
 const F_SETFD: u64 = 2;
 const F_DUPFD_CLOEXEC: u64 = 67;
@@ -81,6 +82,17 @@ struct Call {
     code: u32,
     args: [u64; 4],
     lookups: Vec<(u64, String)>,
+}
+
+/// A read or write whose path nothing confirmed. It is held until the end of
+/// the recording, in case a later lookup shows where its file is.
+struct HeldOpen {
+    mach_time: u64,
+    pid: i32,
+    vnode: u64,
+    raw: String,
+    flags: u64,
+    fd: i32,
 }
 
 /// What a process reports about itself. This is when it started, its command
@@ -174,6 +186,12 @@ pub struct Collector {
     latest: u64,
     argv_buffer: Vec<u8>,
     file_events: bool,
+    /// Whether a path exists. Tests replace the real filesystem check.
+    filesystem: Box<dyn Fn(&str) -> bool>,
+    /// Paths the build itself created. They are real even after they are
+    /// deleted.
+    created: HashSet<String>,
+    held_opens: Vec<HeldOpen>,
     /// Events the kernel dropped because the buffer filled.
     pub dropped: u64,
     /// Processes whose command line was gone before it could be read. They are
@@ -205,6 +223,9 @@ impl Collector {
             latest: 0,
             argv_buffer: vec![0; 1 << 18],
             file_events,
+            filesystem: Box::new(|path| std::fs::symlink_metadata(path).is_ok()),
+            created: HashSet::new(),
+            held_opens: Vec::new(),
             dropped: 0,
             unnamed: 0,
         }
@@ -364,6 +385,27 @@ impl Collector {
 
     /// Emits everything still held back, at the end of a recording.
     pub fn flush(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
+        // A held open is written now, with the time it happened. The trace is
+        // sorted when it is read.
+        for open in std::mem::take(&mut self.held_opens) {
+            let known = self
+                .vnode_paths
+                .get(&open.vnode)
+                .filter(|known| last_component(known) == last_component(&open.raw))
+                .cloned();
+            let unresolved = known.is_none();
+            out(Message {
+                mach_time: open.mach_time,
+                pid: open.pid,
+                ppid: 0,
+                event: Event::Open {
+                    path: known.unwrap_or(open.raw),
+                    flags: open.flags,
+                    fd: open.fd,
+                    unresolved,
+                },
+            })?;
+        }
         // A process's execution has to reach the trace before its exit ends it.
         // The last reads therefore go first.
         self.retry_command_lines(out, true)?;
@@ -630,8 +672,27 @@ impl Collector {
                 _ => call.args[1],
             };
             let directory = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
+            let creating = flags & O_CREAT != 0;
             let path = match call.lookups.first() {
-                Some((vnode, raw)) => self.resolve(pid, *vnode, raw, directory),
+                Some((vnode, raw)) => match self.resolve(pid, *vnode, raw, directory) {
+                    Some((path, false)) => Some(path),
+                    Some((path, true)) if self.confirms(&path, creating) => Some(path),
+                    // Nothing says where this file is, so it gets no invented
+                    // path. A later lookup may still place it.
+                    _ => {
+                        if self.file_events {
+                            self.held_opens.push(HeldOpen {
+                                mach_time,
+                                pid,
+                                vnode: *vnode,
+                                raw: raw.clone(),
+                                flags: linux_open_flags(flags),
+                                fd: returned as i32,
+                            });
+                        }
+                        None
+                    }
+                },
                 // Opening "/" is the one open the kernel logs no lookup for.
                 None if flags & O_DIRECTORY != 0 => Some("/".to_owned()),
                 None => return Ok(()),
@@ -641,19 +702,23 @@ impl Collector {
                     .fds
                     .insert(returned as i32, (path.clone(), flags & O_CLOEXEC != 0));
             }
-            if let Some(path) = path
-                && self.file_events
-            {
-                out(Message {
-                    mach_time,
-                    pid,
-                    ppid: 0,
-                    event: Event::Open {
-                        path,
-                        flags: linux_open_flags(flags),
-                        fd: returned as i32,
-                    },
-                })?;
+            if let Some(path) = path {
+                if creating {
+                    self.created.insert(path.clone());
+                }
+                if self.file_events {
+                    out(Message {
+                        mach_time,
+                        pid,
+                        ppid: 0,
+                        event: Event::Open {
+                            path,
+                            flags: linux_open_flags(flags),
+                            fd: returned as i32,
+                            unresolved: false,
+                        },
+                    })?;
+                }
             }
             return Ok(());
         }
@@ -669,8 +734,12 @@ impl Collector {
                 let (to_vnode, to_raw) = call.lookups[last].clone();
                 let from_dir = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
                 let to_dir = at.then(|| call.args[2]).filter(|fd| *fd as i32 != AT_FDCWD);
-                let from = self.resolve(pid, from_vnode, &from_raw, from_dir);
-                let to = self.resolve(pid, to_vnode, &to_raw, to_dir);
+                let from = self
+                    .resolve(pid, from_vnode, &from_raw, from_dir)
+                    .map(|(path, _)| path);
+                let to = self
+                    .resolve(pid, to_vnode, &to_raw, to_dir)
+                    .map(|(path, _)| path);
                 if let (Some(from), Some(to)) = (from, to) {
                     out(Message {
                         mach_time,
@@ -682,7 +751,7 @@ impl Collector {
             }
             CHDIR => {
                 if let Some((vnode, raw)) = call.lookups.first().cloned() {
-                    let resolved = self.resolve(pid, vnode, &raw, None);
+                    let resolved = self.resolve(pid, vnode, &raw, None).map(|(path, _)| path);
                     if let Some(state) = self.processes.get_mut(&pid) {
                         state.cwd = resolved;
                     }
@@ -732,7 +801,7 @@ impl Collector {
     /// remembered from before a directory existed would send later paths to the
     /// root.
     fn holds(&self, directory: &str, name: &str) -> bool {
-        std::fs::symlink_metadata(format!("{directory}/{name}")).is_ok()
+        (self.filesystem)(&format!("{directory}/{name}"))
     }
 
     fn fd_path(&self, pid: i32, fd: u64) -> Option<String> {
@@ -743,26 +812,29 @@ impl Collector {
             .and_then(|(path, _)| path.clone())
     }
 
-    /// Resolves a path as the kernel reported it.
+    /// Resolves a path as the kernel reported it. It also says whether the
+    /// result is only the path joined onto its directory. A joined path is
+    /// right unless the lookup restarted at a relative symbolic link elsewhere.
+    /// The kernel does not report that, so a joined path needs something else
+    /// to confirm it.
     fn resolve(
         &mut self,
         pid: i32,
         vnode: u64,
         raw: &str,
         directory: Option<u64>,
-    ) -> Option<String> {
+    ) -> Option<(String, bool)> {
         if raw.starts_with('/') {
-            return Some(normalize(raw));
+            return Some((normalize(raw), false));
         }
         // A lookup's vnode is the object found. When the name does not exist
         // yet, it is the directory instead. A known path is therefore the same
         // file only if it ends in the same name. This recovers lookups that
         // restarted at a symbolic link.
-        let last = |path: &str| path.rsplit('/').next().unwrap_or_default().to_owned();
         if let Some(known) = self.vnode_paths.get(&vnode)
-            && last(known) == last(raw)
+            && last_component(known) == last_component(raw)
         {
-            return Some(known.clone());
+            return Some((known.clone(), false));
         }
         let base = match directory {
             Some(fd) => self.fd_path(pid, fd)?,
@@ -777,10 +849,30 @@ impl Collector {
             && !self.holds(&base, first)
             && self.holds("", first)
         {
-            return Some(normalize(&format!("/{raw}")));
+            return Some((normalize(&format!("/{raw}")), false));
         }
-        Some(normalize(&format!("{base}/{raw}")))
+        Some((normalize(&format!("{base}/{raw}")), true))
     }
+
+    /// Whether a joined path is the file an open reached. It is if the build
+    /// created it, if it exists, or, for a new file, if its directory exists.
+    fn confirms(&self, path: &str, creating: bool) -> bool {
+        if self.created.contains(path) {
+            return true;
+        }
+        let target = if creating {
+            path.rsplit_once('/')
+                .map_or("/", |(directory, _)| directory)
+        } else {
+            path
+        };
+        (self.filesystem)(if target.is_empty() { "/" } else { target })
+    }
+}
+
+/// The name a path ends in.
+fn last_component(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or_default()
 }
 
 fn is_open(code: u32) -> bool {
@@ -940,10 +1032,16 @@ mod tests {
         }
     }
 
+    /// A collector for a build in /src, on a filesystem where every path
+    /// exists. A joined path is therefore always believed.
     /// An event the collector ignores, for moving time on.
     const OTHER_EVENT: u32 = 0x0409_0000;
 
     fn collector() -> Collector {
+        collector_on(|_| true)
+    }
+
+    fn collector_on(filesystem: impl Fn(&str) -> bool + 'static) -> Collector {
         let clock = Clock {
             origin: 0,
             numer: 1,
@@ -951,8 +1049,21 @@ mod tests {
             origin_wall: std::time::SystemTime::now(),
         };
         let mut collector = Collector::new(100, "/src".into(), clock, true);
+        collector.filesystem = Box::new(filesystem);
         collector.seed_threads([(10, 100)]);
         collector
+    }
+
+    fn opens(messages: &[Message]) -> Vec<(u64, &str, bool)> {
+        messages
+            .iter()
+            .filter_map(|message| match &message.event {
+                Event::Open {
+                    path, unresolved, ..
+                } => Some((message.mach_time, path.as_str(), *unresolved)),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -974,6 +1085,7 @@ mod tests {
                     // O_WRONLY | O_CREAT | O_TRUNC
                     flags: 0o1101,
                     fd: 5,
+                    unresolved: false,
                 },
             }]
         );
@@ -1067,13 +1179,101 @@ mod tests {
             .push(10, OPEN | 1, [0, 0x601, 0, 0])
             .lookup(10, 0xaaaa, "private/var/folders/xx/ar.tmp")
             .push(10, OPEN | 2, [0, 3, 0, 0]);
-        let messages = stream.collect(&mut collector());
+        let messages = stream.collect(&mut collector_on(|path| {
+            path == "/private" || path.starts_with("/private/")
+        }));
         assert!(
             matches!(
                 &messages[0].event,
                 Event::Open { path, .. } if path == "/private/var/folders/xx/ar.tmp"
             ),
             "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn an_open_nothing_places_is_recorded_unresolved() {
+        // Read through a relative link that lives somewhere else, so the
+        // lookup reports text that does not exist under the build's directory.
+        let mut stream = Stream::new();
+        stream
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x5555, "MacOSX26.sdk/SDKSettings.json")
+            .push(10, OPEN | 2, [0, 3, 0, 0]);
+        let mut collector = collector_on(|path| path == "/src");
+        let messages = stream.collect(&mut collector);
+        assert_eq!(
+            opens(&messages),
+            [(1_040, "MacOSX26.sdk/SDKSettings.json", true)]
+        );
+    }
+
+    #[test]
+    fn a_held_open_is_placed_by_a_later_lookup_of_the_same_file() {
+        let mut stream = Stream::new();
+        stream
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x5555, "MacOSX26.sdk/SDKSettings.json")
+            .push(10, OPEN | 2, [0, 3, 0, 0])
+            // Later, something reaches the same file by its absolute path.
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x5555, "/sdks/MacOSX26.sdk/SDKSettings.json")
+            .push(10, OPEN | 2, [0, 4, 0, 0]);
+        let mut collector = collector_on(|path| path == "/src");
+        let messages = stream.collect(&mut collector);
+        let mut placed = opens(&messages);
+        placed.sort();
+        // The held open keeps the time it happened.
+        assert_eq!(
+            placed,
+            [
+                (1_040, "/sdks/MacOSX26.sdk/SDKSettings.json", false),
+                (1_080, "/sdks/MacOSX26.sdk/SDKSettings.json", false),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_the_build_created_is_believed_once_deleted() {
+        // A temporary file is written, read back and deleted before the read
+        // is resolved.
+        let mut stream = Stream::new();
+        stream
+            .push(10, OPEN | 1, [0, 0x601, 0, 0])
+            .lookup(10, 0x1234, "a.tmp")
+            .push(10, OPEN | 2, [0, 3, 0, 0])
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x1234, "a.tmp")
+            .push(10, OPEN | 2, [0, 4, 0, 0]);
+        let messages = stream.collect(&mut collector_on(|path| path == "/src"));
+        assert_eq!(
+            opens(&messages),
+            [(1_030, "/src/a.tmp", false), (1_060, "/src/a.tmp", false)]
+        );
+    }
+
+    #[test]
+    fn an_open_relative_to_an_unplaced_directory_is_unresolved() {
+        // A directory is opened through a link that nothing places. A file
+        // opened relative to it is no better placed.
+        let mut stream = Stream::new();
+        stream
+            .push(10, OPEN | 1, [0, O_DIRECTORY, 0, 0])
+            .lookup(10, 0x2222, "MacOSX26.sdk/usr/lib")
+            .push(10, OPEN | 2, [0, 7, 0, 0])
+            .push(10, OPENAT | 1, [7, 0, 0, 0])
+            .lookup(10, 0x3333, "libSystem.tbd")
+            .push(10, OPENAT | 2, [0, 8, 0, 0]);
+        let mut collector = collector_on(|path| path == "/src");
+        let messages = stream.collect(&mut collector);
+        let mut placed = opens(&messages);
+        placed.sort();
+        assert_eq!(
+            placed,
+            [
+                (1_030, "MacOSX26.sdk/usr/lib", true),
+                (1_060, "libSystem.tbd", true),
+            ]
         );
     }
 

@@ -345,6 +345,7 @@ impl Tracer<'_> {
                     path,
                     flags: pending.flags,
                     fd,
+                    unresolved: false,
                 },
             )?;
         }

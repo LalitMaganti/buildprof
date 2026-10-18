@@ -21,6 +21,7 @@ third_party/src/
 !/docs/build-systems.md
 !/docs/troubleshooting.md
 !/docs/internals.md
+!/docs/data-loss.md
 !/docs/assets/
 /docs/assets/*
 !/docs/assets/ripgrep-release-clean.png
