@@ -1,6 +1,7 @@
 // Copyright 2026 The Buildprof Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+import "./data_loss.scss";
 import "./topbar.scss";
 import m from "mithril";
 import type { App } from "../../public/app";
@@ -23,10 +24,7 @@ import { checkerboard } from "../../components/checkerboard";
 import { DurationWidget } from "../../components/widgets/duration";
 import { Timestamp } from "../../components/widgets/timestamp";
 import { renderArguments } from "../../components/details/args";
-import {
-  type ArgsDict,
-  getArgs,
-} from "../../components/sql_utils/args";
+import { type ArgsDict, getArgs } from "../../components/sql_utils/args";
 import { asArgSetId } from "../../components/sql_utils/core_types";
 import { makeColorScheme } from "../../components/colorizer";
 import { HSLColor } from "../../base/color";
@@ -45,6 +43,7 @@ import { Tree, TreeNode } from "../../widgets/tree";
 import { Button, ButtonGroup } from "../../widgets/button";
 import { Switch } from "../../widgets/switch";
 import { Anchor } from "../../widgets/anchor";
+import { Icon } from "../../widgets/icon";
 import { Time } from "../../base/time";
 import { Tooltip } from "../../widgets/tooltip";
 import { Stack, StackAuto } from "../../widgets/stack";
@@ -187,13 +186,17 @@ async function registerVersionStatus(trace: Trace): Promise<void> {
       : matches
         ? `Buildprof ${ui}`
         : `Recorded with Buildprof ${recorder} · UI ${ui}`;
-  const link = recorder !== undefined && !matches ? matchingUiUrl(trace, recorder) : undefined;
+  const link =
+    recorder !== undefined && !matches
+      ? matchingUiUrl(trace, recorder)
+      : undefined;
   trace.statusbar.registerItem({
     renderItem: () => ({
       label,
       icon: matches ? "verified" : "info",
       intent: matches ? undefined : Intent.Warning,
-      onclick: link === undefined ? undefined : () => window.open(link, "_blank"),
+      onclick:
+        link === undefined ? undefined : () => window.open(link, "_blank"),
     }),
     popupContent: () =>
       link === undefined
@@ -226,6 +229,102 @@ async function registerCollectionStatus(trace: Trace): Promise<void> {
         "div",
         "This trace was recorded with file collection disabled. Process timing is available, but file lists and dependency links are not. Record again without --no-file-events to include them.",
       ),
+  });
+}
+
+/** Short links the site redirects to the docs explaining each kind of loss. */
+const DIAGNOSE_URL = "https://buildprof.lalitm.com/diagnose/";
+
+/** How the popup words each kind of loss, given what showed it. */
+const DATA_LOSS_KINDS: Record<
+  string,
+  { title: string; detail: (value: string) => m.Children }
+> = {
+  containers: {
+    title: "Work inside containers is missing",
+    detail: (program) => [
+      m("code", program),
+      " ran during this build. Buildprof cannot see inside the containers it starts.",
+    ],
+  },
+  daemons: {
+    title: "Work done by a daemon may be missing",
+    detail: (program) => [
+      m("code", program),
+      " ran during this build. It hands work to a server that Buildprof does not record.",
+    ],
+  },
+  podman: {
+    title: "Rootless Podman could not start",
+    detail: () => [
+      "Podman could not set up its user namespace while traced. Run ",
+      m("code", "podman info"),
+      " once before recording.",
+    ],
+  },
+};
+
+/**
+ * Show what the recorder noticed the recording may be missing, so whoever
+ * opens the trace later sees it too.
+ */
+async function registerDataLoss(trace: Trace): Promise<void> {
+  const prefix = "trace_attribute.buildprof.data_loss.";
+  const result = await trace.engine.query(`
+    select substr(name, ${prefix.length + 1}) as kind, str_value as value
+    from metadata
+    where name glob '${prefix}*'
+    order by name
+  `);
+  const findings: { kind: string; value: string }[] = [];
+  for (
+    const it = result.iter({ kind: STR, value: STR });
+    it.valid();
+    it.next()
+  ) {
+    findings.push({ kind: it.kind, value: it.value });
+  }
+  if (findings.length === 0) return;
+  trace.statusbar.registerItem({
+    renderItem: () => ({
+      label: "Recording may be incomplete",
+      icon: "warning",
+      intent: Intent.Warning,
+    }),
+    popupContent: () =>
+      m(".bt-data-loss", [
+        m(".bt-data-loss__header", [
+          m(Icon, { icon: "warning", intent: Intent.Warning }),
+          "This recording may be incomplete",
+        ]),
+        m(
+          ".bt-data-loss__intro",
+          "While recording this build, Buildprof noticed work it could not see.",
+        ),
+        findings.map(({ kind, value }) => {
+          // A newer recorder may report a kind this UI does not know yet.
+          const known = DATA_LOSS_KINDS[kind];
+          return m(".bt-data-loss__item", [
+            m(
+              ".bt-data-loss__title",
+              known?.title ?? "Some work may be missing",
+            ),
+            m(
+              ".bt-data-loss__detail",
+              known === undefined ? value : known.detail(value),
+            ),
+            m(
+              Anchor,
+              {
+                href: `${DIAGNOSE_URL}${kind}`,
+                target: "_blank",
+                icon: "open_in_new",
+              },
+              "What this means",
+            ),
+          ]);
+        }),
+      ]),
   });
 }
 
@@ -285,6 +384,7 @@ export default class BuildprofPlugin implements PerfettoPlugin {
 
     await registerVersionStatus(trace);
     await registerCollectionStatus(trace);
+    await registerDataLoss(trace);
 
     trace.sidebar.addMenuItem({
       section: "current_trace",
@@ -294,7 +394,8 @@ export default class BuildprofPlugin implements PerfettoPlugin {
       text: "Share trace",
       icon: "share",
       cssClass: "pf-topbar-icon-only",
-      tooltip: "Share trace (not available yet; follow or comment on the issue)",
+      tooltip:
+        "Share trace (not available yet; follow or comment on the issue)",
       action: explainSharing,
     });
     if (trace.traceInfo.downloadable) {
@@ -1420,9 +1521,7 @@ class CompilerTracks {
   constructor(private readonly trace: Trace) {}
 
   async register(): Promise<void> {
-    await this.trace.engine.query(
-      "include perfetto module intervals.overlap",
-    );
+    await this.trace.engine.query("include perfetto module intervals.overlap");
     const [tracksResult, processesResult] = await Promise.all([
       this.trace.engine.query(`
         select id as track_id, name
@@ -1586,8 +1685,7 @@ class CompilerTracks {
           uri,
           dataset,
           colorizer: (row) => buildprofSliceColor(row.name),
-          detailsPanel: (row) =>
-            new CompilerEventDetailsPanel(this.trace, row),
+          detailsPanel: (row) => new CompilerEventDetailsPanel(this.trace, row),
         }),
       ),
     });

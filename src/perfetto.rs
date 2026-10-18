@@ -22,6 +22,7 @@ const COMPRESSION_LEVEL: i32 = 3;
 pub const TRACE_FORMAT_VERSION: i64 = 1;
 const VERSION_ATTRIBUTE: &str = "buildprof.version";
 const TRACE_FORMAT_ATTRIBUTE: &str = "buildprof.trace_format";
+const DATA_LOSS_ATTRIBUTE_PREFIX: &str = "buildprof.data_loss.";
 const PROCESS_MERGE_KEY: &str = "buildprof.processes";
 const FILE_MERGE_KEY: &str = "buildprof.files";
 const PROCESS_CATEGORY: &str = "buildprof.process";
@@ -87,6 +88,26 @@ impl Writer {
                 ])
             })
         })
+    }
+
+    /// Records what the recording may be missing, so whoever opens the trace
+    /// later knows too. Each kind of loss is keyed by the short link name of
+    /// the page that explains it, with what showed it, such as the program
+    /// that hands work to a daemon. The UI decides how to word it.
+    pub fn data_loss(&mut self, findings: &[(&str, String)]) -> io::Result<()> {
+        if findings.is_empty() {
+            return Ok(());
+        }
+        let keys: Vec<String> = findings
+            .iter()
+            .map(|(topic, _)| format!("{DATA_LOSS_ATTRIBUTE_PREFIX}{topic}"))
+            .collect();
+        let attributes: Vec<(&str, AttributeValue<'_>)> = keys
+            .iter()
+            .zip(findings)
+            .map(|(key, (_, message))| (key.as_str(), AttributeValue::Str(message)))
+            .collect();
+        self.with_encoder(|trace| trace.packet(&mut |packet| packet.trace_attributes(&attributes)))
     }
 
     pub fn process_started(&mut self, pid: i32) -> io::Result<()> {
@@ -414,5 +435,30 @@ mod tests {
         assert!(contains(b"Processes"));
         assert!(contains(b"buildprof.file_events"));
         assert!(contains(b"buildprof.compiler_traces"));
+        assert!(!contains(DATA_LOSS_ATTRIBUTE_PREFIX.as_bytes()));
+    }
+
+    #[test]
+    fn writes_what_the_recording_may_be_missing() {
+        let path = std::env::temp_dir().join(format!(
+            "buildprof-data-loss-test-{}-{}.buildprof",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut writer = Writer::create(&path).unwrap();
+        writer.process_started(42).unwrap();
+        writer
+            .data_loss(&[("daemons", "bazel".to_owned())])
+            .unwrap();
+        writer.finish().unwrap();
+
+        let trace = zstd::decode_all(std::fs::read(&path).unwrap().as_slice()).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let contains = |needle: &[u8]| trace.windows(needle.len()).any(|w| w == needle);
+        assert!(contains(b"buildprof.data_loss.daemons"));
+        assert!(contains(b"bazel"));
     }
 }

@@ -110,7 +110,9 @@ fn record(
         &mut blind_spots,
         file_events,
     );
-    let write_result = writer.finish();
+    let write_result = writer
+        .data_loss(&blind_spots.findings())
+        .and_then(|()| writer.finish());
     let exit_code = match result {
         Ok(exit_code) => exit_code,
         Err(error) => {
