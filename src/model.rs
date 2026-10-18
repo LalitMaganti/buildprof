@@ -71,6 +71,9 @@ pub struct FileOpen {
     pub path: String,
     pub flags: u64,
     pub fd: i32,
+    /// The recorder could not work out where `path` is. It holds the path as
+    /// the program's lookup ended, not an absolute one.
+    pub unresolved: bool,
 }
 
 #[cfg(test)]

@@ -144,7 +144,8 @@ def test_programs_that_hide_work_point_at_troubleshooting(buildprof: Path, tmp_p
         "work inside its containers is not recorded"
     ) in stderr
     assert (
-        "buildprof: see https://buildprof.lalitm.com/diagnose/containers"
+        "buildprof: how to record work inside containers: "
+        "https://buildprof.lalitm.com/diagnose/containers"
     ) in stderr
     # The trace records the same for whoever opens it later: the kind of loss,
     # keyed by the page that explains it, and the program that showed it.
