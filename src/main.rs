@@ -9,6 +9,7 @@ mod args;
 mod blind_spots;
 #[cfg(target_os = "linux")]
 mod compiler;
+mod fetch;
 mod handoff;
 #[cfg(target_os = "linux")]
 mod linux;

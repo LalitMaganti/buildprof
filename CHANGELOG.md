@@ -7,6 +7,12 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Added
+
+- `buildprof open` accepts a URL. GitHub Actions artifact URLs are downloaded
+  with the GitHub CLI and other URLs with `curl`, then served like a local
+  recording. The GitHub Action's job summary now prints this command.
+
 ## [0.2.8] - 2026-10-17
 
 ### Fixed

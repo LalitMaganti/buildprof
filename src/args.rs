@@ -91,10 +91,12 @@ enum Action {
     #[usage(
         display_order = 1,
         example("buildprof open clean-build.buildprof"),
+        example("buildprof open https://github.com/OWNER/REPO/actions/runs/RUN/artifacts/ID"),
         example("buildprof open --example ripgrep")
     )]
     Open {
-        /// Path to the trace to open.
+        /// Path or URL of the trace to open. GitHub artifact URLs need the
+        /// GitHub CLI; other URLs are fetched with curl.
         #[usage(required_unless("example"), conflicts("example"))]
         trace: Option<PathBuf>,
 
@@ -128,6 +130,8 @@ pub enum Handoff {
 #[derive(Debug)]
 pub enum Source {
     Trace(PathBuf),
+    /// A trace to download before serving it like a local file.
+    Url(String),
     Example(&'static Example),
 }
 
@@ -203,7 +207,10 @@ fn from_cli(cli: Cli) -> Result<Args, String> {
             url,
         }) => {
             let source = match (trace, example) {
-                (Some(trace), None) => Source::Trace(trace),
+                (Some(trace), None) => match trace.to_str() {
+                    Some(url) if crate::fetch::is_url(url) => Source::Url(url.to_owned()),
+                    _ => Source::Trace(trace),
+                },
                 (None, Some(name)) => Source::Example(find_example(&name)?),
                 _ => return Err("open needs a trace path or --example <NAME>".to_owned()),
             };
@@ -419,6 +426,25 @@ mod tests {
             panic!("expected open arguments")
         };
         assert_eq!(url, "https://example.com/ui/");
+    }
+
+    #[test]
+    fn open_accepts_a_url() {
+        let Args::Open {
+            source: Source::Url(url),
+            ..
+        } = parse_strings(&[
+            "buildprof",
+            "open",
+            "https://github.com/owner/repo/actions/runs/1/artifacts/2",
+        ])
+        else {
+            panic!("expected open arguments for a URL")
+        };
+        assert_eq!(
+            url,
+            "https://github.com/owner/repo/actions/runs/1/artifacts/2"
+        );
     }
 
     #[test]

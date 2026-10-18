@@ -5,7 +5,7 @@
 //! hosted UI to fetch, launched here or spelled out for an SSH reader.
 
 use crate::args::{self, Handoff, Source, Wait};
-use crate::{report, util};
+use crate::{fetch, report, util};
 use std::net::TcpListener;
 use std::process::ExitCode;
 use std::time::Instant;
@@ -26,6 +26,8 @@ pub fn open_in_ui(
     recorded: bool,
 ) -> ExitCode {
     let ui_url = ui_url.trim_end_matches('/');
+    // Outlives the handoff, then removes the downloaded trace.
+    let download: fetch::Download;
     let trace = match source {
         Source::Example(example) => {
             let url = format!("{ui_url}/#!/?url={}/{}", args::EXAMPLES_URL, example.file);
@@ -44,6 +46,17 @@ pub fn open_in_ui(
             return ExitCode::SUCCESS;
         }
         Source::Trace(trace) => trace,
+        Source::Url(url) => {
+            head!("Downloading {}", report::emph(url));
+            download = match fetch::fetch(url) {
+                Ok(download) => download,
+                Err(message) => {
+                    error!("{message}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            &download.trace
+        }
     };
 
     let Ok(served) = trace.canonicalize() else {
@@ -71,7 +84,12 @@ pub fn open_in_ui(
     };
 
     let url = format!("{ui_url}/#!/?url={TRACE_URL}");
-    let path = report::emph(trace.display());
+    // A download lives in a temporary directory, so name it by its URL.
+    let shown = match source {
+        Source::Url(url) => url.clone(),
+        _ => trace.display().to_string(),
+    };
+    let path = report::emph(&shown);
     match handoff {
         Handoff::Browser => {
             if recorded {
@@ -122,7 +140,7 @@ pub fn open_in_ui(
             report::gap();
             error!(
                 "no browser fetched the trace; run {} to try again",
-                report::emph(format_args!("buildprof open {}", trace.display()))
+                report::emph(format_args!("buildprof open {shown}"))
             );
             hint!(
                 "if you blocked the browser's prompt for {}, allow it again in the site \
