@@ -126,7 +126,7 @@ def test_programs_that_hide_work_point_at_troubleshooting(buildprof: Path, tmp_p
 
     def record(script: str) -> str:
         result = subprocess.run(
-            [str(buildprof), "--no-open", "--", "sh", "-c", script],
+            [str(buildprof), "--no-open", "-o", str(trace), "--", "sh", "-c", script],
             cwd=tmp_path,
             env=environment,
             text=True,
@@ -136,6 +136,7 @@ def test_programs_that_hide_work_point_at_troubleshooting(buildprof: Path, tmp_p
         assert result.returncode == 0, result.stderr
         return result.stderr
 
+    trace = tmp_path / "blind-spots.buildprof"
     stderr = record("docker run image; docker ps; gradlew --no-daemon build")
     assert stderr.count("ran during this build") == 1, stderr
     assert (
@@ -145,8 +146,19 @@ def test_programs_that_hide_work_point_at_troubleshooting(buildprof: Path, tmp_p
     assert (
         "buildprof: see https://buildprof.lalitm.com/diagnose/containers"
     ) in stderr
+    # The trace records the same for whoever opens it later: the kind of loss,
+    # keyed by the page that explains it, and the program that showed it.
+    findings = {
+        key: value
+        for key, value in load_trace_attributes(trace).items()
+        if key.startswith("buildprof.data_loss.")
+    }
+    assert findings == {"buildprof.data_loss.containers": "docker"}
 
     assert "ran during this build" not in record("true")
+    assert not any(
+        key.startswith("buildprof.data_loss.") for key in load_trace_attributes(trace)
+    )
 
 
 def test_file_opens_are_recorded_by_default(

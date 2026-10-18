@@ -1,0 +1,45 @@
+// Copyright 2026 The Buildprof Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+// The popup of the "Recording may be incomplete" status bar item.
+.bt-data-loss {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  line-height: 1.4;
+
+  code {
+    font-family: var(--pf-font-monospace);
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--pf-color-background-secondary);
+  }
+}
+
+.bt-data-loss__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.bt-data-loss__intro {
+  color: var(--pf-color-text-muted);
+}
+
+.bt-data-loss__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pf-color-border-secondary);
+}
+
+.bt-data-loss__title {
+  font-weight: 600;
+}
+
+.bt-data-loss__detail {
+  color: var(--pf-color-text-muted);
+}

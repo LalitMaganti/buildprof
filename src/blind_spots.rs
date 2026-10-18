@@ -52,16 +52,29 @@ impl BlindSpots {
                     report::emph("podman info")
                 ),
             }
-            let topic = match spot {
-                BlindSpot::Container => "containers",
-                BlindSpot::Daemon => "daemons",
-                BlindSpot::PodmanUserNamespace => "podman",
-            };
             hint!(
                 "see {}",
-                report::emph(format_args!("{DIAGNOSE_URL}{topic}"))
+                report::emph(format_args!("{DIAGNOSE_URL}{}", topic(*spot)))
             );
         }
+    }
+
+    /// Each kind of blind spot seen, by the short link name of the page that
+    /// explains it, with the program that showed it. The UI words them.
+    pub fn findings(&self) -> Vec<(&'static str, String)> {
+        self.seen
+            .iter()
+            .map(|(spot, program)| (topic(*spot), program.clone()))
+            .collect()
+    }
+}
+
+/// The short link the site redirects to the page explaining a blind spot.
+fn topic(spot: BlindSpot) -> &'static str {
+    match spot {
+        BlindSpot::Container => "containers",
+        BlindSpot::Daemon => "daemons",
+        BlindSpot::PodmanUserNamespace => "podman",
     }
 }
 
@@ -95,10 +108,26 @@ fn classify(argv: &[String]) -> Option<(BlindSpot, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BlindSpot, classify};
+    use super::{BlindSpot, BlindSpots, classify};
 
     fn spot(argv: &[&str]) -> Option<(BlindSpot, String)> {
         classify(&argv.iter().map(|arg| arg.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn findings_name_each_kind_and_its_program() {
+        let mut spots = BlindSpots::default();
+        spots.observe(&["/usr/bin/docker".into(), "run".into(), "image".into()]);
+        spots.observe(&["bazel".into(), "build".into()]);
+        spots.observe(&["true".into()]);
+        assert_eq!(
+            spots.findings(),
+            [
+                ("containers", "docker".to_owned()),
+                ("daemons", "bazel".to_owned()),
+            ]
+        );
+        assert!(BlindSpots::default().findings().is_empty());
     }
 
     #[test]
