@@ -160,18 +160,10 @@ pub(super) fn wifexited(status: i32) -> bool {
     status & 0x7f == 0
 }
 
-pub(super) fn wexitstatus(status: i32) -> i32 {
-    (status >> 8) & 0xff
-}
-
 pub(super) fn wifsignaled(status: i32) -> bool {
     // The signed-byte narrowing is load-bearing: for a ptrace stop the low
     // seven bits are 0x7f, and 0x80 only reads as negative once truncated.
     ((((status & 0x7f) + 1) as i8) >> 1) > 0
-}
-
-pub(super) fn wtermsig(status: i32) -> i32 {
-    status & 0x7f
 }
 
 pub(super) fn wifstopped(status: i32) -> bool {

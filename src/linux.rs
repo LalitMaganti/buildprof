@@ -4,7 +4,7 @@
 use self::{ptrace::*, seccomp::*, tracee::*};
 use crate::blind_spots::BlindSpots;
 use crate::compiler::Capture;
-use crate::model::{FileOpen, Process, Rename, Segment};
+use crate::model::{FileOpen, Process, Rename, Segment, exit_code};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CString, OsString, c_void};
@@ -18,8 +18,6 @@ mod ptrace;
 mod seccomp;
 mod tracee;
 
-const MINIMUM_SEGMENT_DURATION_NS: u64 = 1;
-const SIGNAL_EXIT_STATUS_OFFSET: i32 = 128;
 /// Exit status of the forked child when it cannot make itself traceable.
 const TRACE_SETUP_FAILURE_STATUS: i32 = 126;
 /// Exit status of the forked child when the command itself cannot start.
@@ -375,11 +373,7 @@ impl Tracer<'_> {
         };
         if state.process.execed {
             if let Some(previous) = state.segment.as_mut() {
-                previous.end_ns = timestamp_ns.max(
-                    previous
-                        .start_ns
-                        .saturating_add(MINIMUM_SEGMENT_DURATION_NS),
-                );
+                previous.end_at(timestamp_ns);
                 self.writer.segment(state.process, previous)?;
             }
             state.segment = Some(Segment {
@@ -481,11 +475,7 @@ impl Tracer<'_> {
         self.pending_renames.remove(&tid);
         self.newborns.remove(&tid);
         let tgid = self.tasks.remove(&tid).unwrap_or(tid);
-        let exit_code = if wifexited(status) {
-            wexitstatus(status) as u32
-        } else {
-            (SIGNAL_EXIT_STATUS_OFFSET + wtermsig(status)) as u32
-        };
+        let exit_code = exit_code(status);
         if tid == self.root_pid {
             self.root_exit_code = Some(exit_code.min(u8::MAX as u32) as u8);
         }
@@ -498,8 +488,7 @@ impl Tracer<'_> {
         if let Some(mut state) = self.processes.remove(&tgid)
             && let Some(mut segment) = state.segment.take()
         {
-            segment.end_ns =
-                timestamp_ns.max(segment.start_ns.saturating_add(MINIMUM_SEGMENT_DURATION_NS));
+            segment.end_at(timestamp_ns);
             segment.exit_code = self.exit_codes.remove(&tgid);
             self.writer.segment(state.process, &segment)?;
             self.compilers
@@ -525,16 +514,12 @@ impl Tracer<'_> {
     }
 
     fn build_parent_of(&self, parent_pid: i32) -> i32 {
-        self.processes
-            .get(&parent_pid)
-            .map(|parent| {
-                if parent.process.execed {
-                    parent_pid
-                } else {
-                    parent.process.build_parent_pid
-                }
-            })
-            .unwrap_or(parent_pid)
+        Process::build_parent_of(
+            self.processes
+                .get(&parent_pid)
+                .map(|parent| &parent.process),
+            parent_pid,
+        )
     }
 }
 
