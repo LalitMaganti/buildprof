@@ -185,6 +185,8 @@ pub fn record(
         detached: Vec::new(),
         detached_exits: Arc::new(Mutex::new(HashMap::new())),
         leak_tracers: HashMap::new(),
+        leak_check_detaches: HashMap::new(),
+        injected_stops: HashSet::new(),
         detaching: false,
         queued_leak_checks: Vec::new(),
         active: HashSet::from([child]),
@@ -343,6 +345,10 @@ struct Tracer<'writer> {
     detached_exits: Arc<Mutex<HashMap<i32, u64>>>,
     /// LeakSanitizer tracer threads, by the process they check.
     leak_tracers: HashMap<i32, i32>,
+    /// LeakSanitizer tracers inside ptrace(PTRACE_DETACH), by the thread.
+    leak_check_detaches: HashMap<i32, i32>,
+    /// Threads whose next SIGSTOP buildprof queued itself.
+    injected_stops: HashSet<i32>,
     detaching: bool,
     queued_leak_checks: Vec<(i32, i32)>,
     active: HashSet<i32>,
@@ -425,6 +431,12 @@ impl Tracer<'_> {
         let signal = wstopsig(status);
         let event = (status as u32) >> 16;
 
+        // The first stop of a thread traced again after a leak check
+        // consumes the SIGSTOP buildprof queued for it.
+        if self.injected_stops.remove(&tid) && event == 0 && signal == libc::SIGSTOP {
+            return self.resume(tid, 0);
+        }
+
         // Consume exactly one initial SIGSTOP per task.
         let first_stop = self.started.insert(tid);
         if first_stop && event == 0 && signal == libc::SIGSTOP {
@@ -481,39 +493,42 @@ impl Tracer<'_> {
         Ok(())
     }
 
-    /// Traces a process again after its leak check, best effort: threads
-    /// that ran untraced in between could not open files.
-    fn retrace(&mut self, tgid: i32) {
-        let Some(index) = self
+    /// Traces a thread LeakSanitizer just let go; it stops on the SIGSTOP
+    /// queued for it, which is then suppressed.
+    fn retrace_thread(&mut self, tgid: i32, tid: i32) {
+        if self.tasks.contains_key(&tid) || call(SEIZE, tid, 0, self.trace_options).is_err() {
+            return;
+        }
+        self.active.insert(tid);
+        self.started.insert(tid);
+        self.tasks.insert(tid, tgid);
+        self.injected_stops.insert(tid);
+        if let Some(index) = self
             .detached
             .iter()
             .position(|state| state.process.pid == tgid)
-        else {
-            return;
-        };
-        let Ok(threads) = std::fs::read_dir(format!("/proc/{tgid}/task")) else {
-            return;
-        };
-        let mut traced = false;
-        for thread in threads.flatten() {
-            let Some(tid) = thread
-                .file_name()
-                .to_str()
-                .and_then(|name| name.parse::<i32>().ok())
-            else {
-                continue;
-            };
-            if call(SEIZE, tid, 0, self.trace_options).is_ok() {
-                self.active.insert(tid);
-                self.started.insert(tid);
-                self.tasks.insert(tid, tgid);
-                traced = true;
-            }
-        }
-        if traced {
+        {
             let state = self.detached.remove(index);
             self.processes.insert(tgid, state);
         }
+    }
+
+    /// Traces whatever threads of a checked process are still untraced once
+    /// LeakSanitizer's tracer exits, and lets the process continue.
+    fn retrace(&mut self, tgid: i32) {
+        if let Ok(threads) = std::fs::read_dir(format!("/proc/{tgid}/task")) {
+            for thread in threads.flatten() {
+                if let Some(tid) = thread
+                    .file_name()
+                    .to_str()
+                    .and_then(|name| name.parse::<i32>().ok())
+                {
+                    self.retrace_thread(tgid, tid);
+                }
+            }
+        }
+        // Undo any queued SIGSTOP that stopped the whole process.
+        unsafe { libc::kill(tgid, libc::SIGCONT) };
     }
 
     fn detach_now(&mut self, tgid: i32, stopped: i32, tracer: i32) -> io::Result<()> {
@@ -721,6 +736,20 @@ impl Tracer<'_> {
             }
             return call(CONT, tid, 0, 0).map(|_| ());
         }
+        if nr == libc::SYS_ptrace && seccomp.args[0] == u64::from(PTRACE_DETACH) {
+            // LeakSanitizer's tracer is letting a checked thread go. Queue a
+            // SIGSTOP so the thread stops before running, untraced, into the
+            // filter, and trace it again once the detach returns.
+            let target = seccomp.args[1] as i32;
+            if let Some(&checked) = self.leak_tracers.get(&tid)
+                && read_tgid(target) == Some(checked)
+            {
+                unsafe { libc::syscall(libc::SYS_tgkill, checked, target, libc::SIGSTOP) };
+                self.leak_check_detaches.insert(tid, target);
+                return call(SYSCALL, tid, 0, 0).map(|_| ());
+            }
+            return call(CONT, tid, 0, 0).map(|_| ());
+        }
 
         // Resolve rename paths on entry while their directory fds are valid.
         if is_rename(nr) {
@@ -782,6 +811,19 @@ impl Tracer<'_> {
     }
 
     fn handle_syscall_stop(&mut self, tid: i32) -> io::Result<()> {
+        if let Some(target) = self.leak_check_detaches.remove(&tid) {
+            let Some(info) = allow_dead(syscall_info(tid))? else {
+                return Ok(());
+            };
+            if info.op != SYSCALL_INFO_EXIT {
+                self.leak_check_detaches.insert(tid, target);
+                return call(SYSCALL, tid, 0, 0).map(|_| ());
+            }
+            if let Some(&checked) = self.leak_tracers.get(&tid) {
+                self.retrace_thread(checked, target);
+            }
+            return self.resume(tid, 0);
+        }
         if let Some(pending) = self.pending_renames.remove(&tid) {
             let Some(info) = allow_dead(syscall_info(tid))? else {
                 return Ok(());

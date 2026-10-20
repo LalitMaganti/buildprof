@@ -84,6 +84,26 @@ def test_leak_sanitizer_runs_under_recording(buildprof: Path, tmp_path: Path, le
     assert root.segments[-1].exit_code == (1 if leak else 0)
 
 
+def test_process_after_leak_check_can_still_open_files(buildprof: Path, tmp_path: Path):
+    # LeakSanitizer reads its suppressions in the checked process after the
+    # check, by when that process must be traced again.
+    binary = asan_program(tmp_path)
+    suppressions = tmp_path / "lsan.supp"
+    suppressions.write_text("leak:no_such_function\n")
+    trace = tmp_path / "trace.pftrace"
+    result = subprocess.run(
+        [str(buildprof), "--no-open", "-o", str(trace), "--", str(binary), "leak"],
+        cwd=tmp_path,
+        env={**os.environ, "LSAN_OPTIONS": f"suppressions={suppressions}"},
+        text=True,
+        capture_output=True,
+        timeout=20,
+    )
+    assert "failed to read suppressions" not in result.stderr
+    assert "detected memory leaks" in result.stderr
+    assert result.returncode == 1
+
+
 @pytest.mark.skipif(os.geteuid() != 0, reason="--run-as needs root")
 def test_run_as_lets_setuid_programs_work(buildprof: Path, tmp_path: Path):
     user = os.environ.get("SUDO_USER") or os.environ.get("BUILDPROF_TEST_USER")

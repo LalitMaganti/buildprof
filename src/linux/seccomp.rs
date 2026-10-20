@@ -1,8 +1,8 @@
 // Copyright 2026 The Buildprof Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Seccomp filter used to turn selected filesystem calls, and the call
-//! LeakSanitizer makes before its leak check, into ptrace events.
+//! Seccomp filter used to turn selected filesystem calls, and the calls
+//! LeakSanitizer makes around its leak check, into ptrace events.
 
 use std::io;
 
@@ -16,6 +16,8 @@ const BPF_RET_K: u16 = 0x06;
 const FIRST_ARGUMENT: u32 = 16;
 /// `prctl(PR_SET_PTRACER, …)`: LeakSanitizer lets its own tracer thread attach.
 pub(super) const PR_SET_PTRACER: libc::c_ulong = 0x5961_6d61;
+/// `ptrace(PTRACE_DETACH, …)`: LeakSanitizer lets a thread go after its check.
+pub(super) const PTRACE_DETACH: u32 = 17;
 
 pub(super) unsafe fn install_filter() -> io::Result<()> {
     let mut instructions = vec![SockFilter::statement(BPF_LD_W_ABS, 0)];
@@ -23,16 +25,20 @@ pub(super) unsafe fn install_filter() -> io::Result<()> {
         instructions.push(SockFilter::jump(BPF_JMP_JEQ_K, syscall as u32, 0, 1));
         instructions.push(SockFilter::statement(BPF_RET_K, RET_TRACE));
     }
-    // Only PR_SET_PTRACER stops; other prctl calls are frequent.
-    instructions.push(SockFilter::jump(
-        BPF_JMP_JEQ_K,
-        libc::SYS_prctl as u32,
-        0,
-        3,
-    ));
-    instructions.push(SockFilter::statement(BPF_LD_W_ABS, FIRST_ARGUMENT));
-    instructions.push(SockFilter::jump(BPF_JMP_JEQ_K, PR_SET_PTRACER as u32, 0, 1));
-    instructions.push(SockFilter::statement(BPF_RET_K, RET_TRACE));
+    // Only PR_SET_PTRACER and PTRACE_DETACH stop; prctl calls are frequent.
+    // Each jump skips to the final allow when its comparison fails.
+    let checks = [
+        (libc::SYS_prctl as u32, PR_SET_PTRACER as u32),
+        (libc::SYS_ptrace as u32, PTRACE_DETACH),
+    ];
+    for (syscall, first_argument) in checks {
+        instructions.push(SockFilter::jump(BPF_JMP_JEQ_K, syscall, 0, 3));
+        instructions.push(SockFilter::statement(BPF_LD_W_ABS, FIRST_ARGUMENT));
+        instructions.push(SockFilter::jump(BPF_JMP_JEQ_K, first_argument, 0, 1));
+        instructions.push(SockFilter::statement(BPF_RET_K, RET_TRACE));
+        // Reload the syscall number for the next check.
+        instructions.push(SockFilter::statement(BPF_LD_W_ABS, 0));
+    }
     instructions.push(SockFilter::statement(BPF_RET_K, RET_ALLOW));
     let program = SockFprog {
         len: instructions.len() as u16,
