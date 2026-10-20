@@ -47,7 +47,15 @@ recorded. With `--no-file-events`, the leak check fails; set
 ## sudo and other setuid programs
 
 Setuid programs such as `sudo` gain no privileges under an unprivileged
-tracer. Run buildprof as root and the command as yourself instead:
+tracer. Grant buildprof the capabilities to trace them, once:
+
+```sh
+sudo setcap cap_sys_ptrace,cap_sys_admin+ep "$(command -v buildprof)"
+```
+
+The command still runs as you, with its environment unchanged. Alternatively,
+run buildprof as root and the command as yourself; `sudo` itself changes the
+command's environment, such as setting an unset `TERM` to `unknown`:
 
 ```sh
 sudo -E env "PATH=$PATH" buildprof --run-as "$(id -un)" -- ./ci.sh

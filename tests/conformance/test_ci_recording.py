@@ -108,3 +108,21 @@ def test_allowing_any_tracer_does_not_stop_recording(buildprof: Path, tmp_path: 
     assert result.returncode == 0, result.stderr
     assert "LeakSanitizer" not in result.stderr
     assert (tmp_path / "after-prctl.txt").read_text() == "ok"
+
+
+def test_capabilities_let_setuid_programs_work(buildprof: Path, tmp_path: Path):
+    if os.geteuid() == 0 or shutil.which("setcap") is None:
+        pytest.skip("needs a non-root user and setcap")
+    if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
+        pytest.skip("needs passwordless sudo")
+    copy = tmp_path / "buildprof"
+    shutil.copy(buildprof, copy)
+    subprocess.run(["sudo", "-n", "setcap", "cap_sys_ptrace,cap_sys_admin+ep", str(copy)], check=True)
+    env = {key: value for key, value in os.environ.items() if key != "TERM"}
+    result = subprocess.run(
+        [str(copy), "--no-open", "-o", str(tmp_path / "trace.pftrace"), "--",
+         "sh", "-c", 'sudo -n id -u; id -u; echo "TERM=${TERM-unset}"'],
+        cwd=tmp_path, env=env, text=True, capture_output=True, timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["0", str(os.geteuid()), "TERM=unset"]

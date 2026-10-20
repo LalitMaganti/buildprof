@@ -1046,10 +1046,11 @@ fn child_exec(
         }
         libc::raise(libc::SIGSTOP);
         if file_events {
-            // With CAP_SYS_ADMIN the filter needs no no_new_privs, which would
-            // stop setuid programs such as sudo from gaining privileges. Root
-            // in a container usually lacks it and falls back.
-            let filtered = libc::geteuid() == 0 && install_filter().is_ok();
+            // With CAP_SYS_ADMIN, as root or through file capabilities, the
+            // filter needs no no_new_privs, which would stop setuid programs
+            // such as sudo from gaining privileges. Without it the kernel
+            // refuses, and we fall back.
+            let filtered = install_filter().is_ok();
             if !filtered {
                 if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1 {
                     child_fail(
