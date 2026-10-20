@@ -121,6 +121,7 @@ pub fn record(
     options: &Options,
 ) -> io::Result<(u8, Leftovers)> {
     let argv = make_argv(command)?;
+    restore_stack_limit();
     let initial_command = command_line(command);
     let initial_name = executable_name(command.first().expect("validated command"));
     let initial_cwd = std::env::current_dir()?.to_string_lossy().into_owned();
@@ -1002,6 +1003,42 @@ impl Tracer<'_> {
                 .map(|parent| &parent.process),
             parent_pid,
         )
+    }
+}
+
+/// Undoes the stack limit reset of a secure exec.
+///
+/// Started with file capabilities, buildprof runs as a secure exec, for which
+/// the kernel lowers the stack soft limit to 8 MiB; the command would inherit
+/// that. The shell that started buildprof still has the limit it meant.
+fn restore_stack_limit() {
+    if unsafe { libc::getauxval(libc::AT_SECURE) } == 0 {
+        return;
+    }
+    let parent = unsafe { libc::getppid() };
+    let Some(wanted) = std::fs::read_to_string(format!("/proc/{parent}/limits"))
+        .ok()
+        .and_then(|limits| {
+            let line = limits
+                .lines()
+                .find(|line| line.starts_with("Max stack size"))?;
+            let soft = line.split_whitespace().nth(3)?;
+            Some(if soft == "unlimited" {
+                libc::RLIM_INFINITY
+            } else {
+                soft.parse().ok()?
+            })
+        })
+    else {
+        return;
+    };
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    if unsafe { libc::getrlimit(libc::RLIMIT_STACK, &mut limit) } == 0 && limit.rlim_cur < wanted {
+        limit.rlim_cur = wanted.min(limit.rlim_max);
+        unsafe { libc::setrlimit(libc::RLIMIT_STACK, &limit) };
     }
 }
 

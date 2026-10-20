@@ -120,9 +120,11 @@ def test_capabilities_let_setuid_programs_work(buildprof: Path, tmp_path: Path):
     subprocess.run(["sudo", "-n", "setcap", "cap_sys_ptrace,cap_sys_admin+ep", str(copy)], check=True)
     env = {key: value for key, value in os.environ.items() if key != "TERM"}
     result = subprocess.run(
-        [str(copy), "--no-open", "-o", str(tmp_path / "trace.pftrace"), "--",
-         "sh", "-c", 'sudo -n id -u; id -u; echo "TERM=${TERM-unset}"'],
+        ["sh", "-c", 'ulimit -S -s 12345; "$0" "$@"',
+         str(copy), "--no-open", "-o", str(tmp_path / "trace.pftrace"), "--",
+         "sh", "-c", 'sudo -n id -u; id -u; echo "TERM=${TERM-unset}"; ulimit -S -s'],
         cwd=tmp_path, env=env, text=True, capture_output=True, timeout=20,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.split() == ["0", str(os.geteuid()), "TERM=unset"]
+    # The secure exec of a binary with capabilities resets the stack limit.
+    assert result.stdout.split() == ["0", str(os.geteuid()), "TERM=unset", "12345"]
