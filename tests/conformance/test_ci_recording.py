@@ -148,3 +148,27 @@ def test_capabilities_let_setuid_programs_work(buildprof: Path, tmp_path: Path):
     assert result.returncode == 0, result.stderr
     # The secure exec of a binary with capabilities resets the stack limit.
     assert result.stdout.split() == ["0", str(os.geteuid()), "TERM=unset", "12345"]
+
+
+def test_stopped_process_stays_stopped_until_continued(buildprof: Path, tmp_path: Path):
+    # As php-src's pcntl tests do: a child stops itself and the parent decides
+    # when it continues.
+    script = (
+        "import os, signal, time\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        "    os.kill(os.getpid(), signal.SIGSTOP)\n"
+        "    os._exit(42)\n"
+        "_, status = os.waitpid(pid, os.WUNTRACED)\n"
+        "assert os.WIFSTOPPED(status), status\n"
+        "time.sleep(0.5)\n"
+        "state = open(f'/proc/{pid}/stat').read().rsplit(')', 1)[1].split()[0]\n"
+        "assert state in 'Tt', state\n"
+        "os.kill(pid, signal.SIGCONT)\n"
+        "_, status = os.waitpid(pid, 0)\n"
+        "assert os.WEXITSTATUS(status) == 42, status\n"
+        "print('ok')\n"
+    )
+    result, _, _ = record(buildprof, tmp_path, "--", "python3", "-c", script)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"

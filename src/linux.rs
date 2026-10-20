@@ -7,7 +7,7 @@ use crate::compiler::Capture;
 use crate::model::{FileOpen, Process, Rename, Segment, exit_code};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
-use std::ffi::{CString, OsString, c_void};
+use std::ffi::{CString, OsString};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
@@ -129,28 +129,25 @@ pub fn record(
     let clock = Instant::now();
     compilers.set_origin(origin);
 
+    // The child waits on this pipe until it is traced.
+    let mut ready = [0; 2];
+    if unsafe { libc::pipe2(ready.as_mut_ptr(), libc::O_CLOEXEC) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
     let child = unsafe { libc::fork() };
     if child < 0 {
         return Err(io::Error::last_os_error());
     }
     if child == 0 {
-        child_exec(&argv, compilers, file_events, options.run_as.as_ref());
+        child_exec(
+            &argv,
+            compilers,
+            file_events,
+            options.run_as.as_ref(),
+            ready,
+        );
     }
-
-    let mut status = 0;
-    if unsafe { libc::waitpid(child, &mut status, 0) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if !wifstopped(status) {
-        if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == TRACE_SETUP_FAILURE_STATUS {
-            return Err(io::Error::other(
-                "tracing could not start here (see above); in Docker add --cap-add SYS_PTRACE, \
-                 keep kernel.yama.ptrace_scope below 3, and note that gVisor-style sandboxes \
-                 cannot trace at all",
-            ));
-        }
-        return Err(io::Error::other("traced child did not stop before exec"));
-    }
+    unsafe { libc::close(ready[0]) };
 
     let mut trace_options = O_TRACESYSGOOD
         | O_TRACEFORK
@@ -163,7 +160,23 @@ pub fn record(
     if file_events {
         trace_options |= O_TRACESECCOMP;
     }
-    call(SETOPTIONS, child, 0, trace_options)?;
+    // Seizing, unlike PTRACE_TRACEME, lets job-control stops keep their
+    // meaning: a stopped process stays stopped until SIGCONT.
+    if call(SEIZE, child, 0, trace_options).is_err() {
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, ptr::null_mut(), 0);
+        }
+        return Err(io::Error::other(
+            "tracing could not start here; in Docker add --cap-add SYS_PTRACE, \
+             keep kernel.yama.ptrace_scope below 3, and note that gVisor-style sandboxes \
+             cannot trace at all",
+        ));
+    }
+    unsafe {
+        libc::write(ready[1], [1_u8].as_ptr().cast(), 1);
+        libc::close(ready[1]);
+    }
 
     let root = Process {
         pid: child,
@@ -213,7 +226,6 @@ pub fn record(
         )]),
     };
 
-    tracer.resume(child, 0)?;
     tracer.run()
 }
 
@@ -247,8 +259,13 @@ impl Leftovers {
             }
             let signal = wstopsig(status);
             let event = (status as u32) >> 16;
-            // New tasks stop once with SIGSTOP when they are first traced.
-            let initial = started.insert(tid) && event == 0 && signal == libc::SIGSTOP;
+            // New tasks stop once when they are first traced.
+            let initial = started.insert(tid)
+                && (event == EVENT_STOP || (event == 0 && signal == libc::SIGSTOP));
+            if !initial && event == EVENT_STOP {
+                let _ = resume_after_event_stop(tid, signal);
+                continue;
+            }
             let deliver = if event != 0 || initial || signal == (libc::SIGTRAP | 0x80) {
                 0
             } else {
@@ -437,13 +454,17 @@ impl Tracer<'_> {
             return self.resume(tid, 0);
         }
 
-        // Consume exactly one initial SIGSTOP per task.
+        // Consume exactly one initial stop per task: PTRACE_EVENT_STOP for
+        // seized tasks, SIGSTOP for older kernels' auto-attached ones.
         let first_stop = self.started.insert(tid);
-        if first_stop && event == 0 && signal == libc::SIGSTOP {
+        if first_stop && (event == EVENT_STOP || (event == 0 && signal == libc::SIGSTOP)) {
             self.active.insert(tid);
             return self.resume(tid, 0);
         }
 
+        if event == EVENT_STOP {
+            return resume_after_event_stop(tid, signal);
+        }
         if event != 0 {
             self.handle_event(tid, event)
         } else if signal == (libc::SIGTRAP | 0x80) {
@@ -1084,6 +1105,21 @@ fn restore_stack_limit() {
     }
 }
 
+/// Resumes a seized task from PTRACE_EVENT_STOP. A group-stop, reported with
+/// the stopping signal, is kept with PTRACE_LISTEN until SIGCONT, as it would
+/// be untraced; other event stops report SIGTRAP and simply continue.
+fn resume_after_event_stop(tid: i32, signal: i32) -> io::Result<()> {
+    let request = if matches!(
+        signal,
+        libc::SIGSTOP | libc::SIGTSTP | libc::SIGTTIN | libc::SIGTTOU
+    ) {
+        LISTEN
+    } else {
+        CONT
+    };
+    ignore_dead(call(request, tid, 0, 0))
+}
+
 fn make_argv(command: &[OsString]) -> io::Result<Vec<CString>> {
     if command.is_empty() {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty command"));
@@ -1106,24 +1142,19 @@ fn child_exec(
     compilers: &Capture,
     file_events: bool,
     run_as: Option<&RunAs>,
+    ready: [i32; 2],
 ) -> ! {
     unsafe {
         // Rust ignores SIGPIPE and exec preserves ignored signals.
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
         compilers.configure_child();
-        if libc::ptrace(
-            TRACEME,
-            0,
-            ptr::null_mut::<c_void>(),
-            ptr::null_mut::<c_void>(),
-        ) == -1
-        {
-            child_fail(
-                b"ptrace is not permitted in this environment",
-                TRACE_SETUP_FAILURE_STATUS,
-            );
+        // Wait until buildprof traces us; without the byte it could not.
+        libc::close(ready[1]);
+        let mut byte = 0_u8;
+        if libc::read(ready[0], (&mut byte as *mut u8).cast(), 1) != 1 {
+            libc::_exit(TRACE_SETUP_FAILURE_STATUS);
         }
-        libc::raise(libc::SIGSTOP);
+        libc::close(ready[0]);
         if file_events {
             // With CAP_SYS_ADMIN, as root or through file capabilities, the
             // filter needs no no_new_privs, which would stop setuid programs

@@ -23,6 +23,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - LeakSanitizer leak checks no longer fail under recording with file events
   on. A process is no longer traced from the start of its leak check.
+- A process stopped with SIGSTOP or another job-control signal now stays
+  stopped under recording until it is continued, as it would untraced.
+  Buildprof attaches with PTRACE_SEIZE and keeps group-stops with
+  PTRACE_LISTEN.
 
 ## [0.2.8] - 2026-10-17
 

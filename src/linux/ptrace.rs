@@ -15,13 +15,12 @@ pub(super) type Request = libc::c_int;
 #[cfg(not(target_env = "musl"))]
 pub(super) type Request = libc::c_uint;
 
-pub(super) const TRACEME: Request = 0;
 pub(super) const PEEKDATA: Request = 2;
 pub(super) const CONT: Request = 7;
 pub(super) const DETACH: Request = 17;
 pub(super) const SYSCALL: Request = 24;
-pub(super) const SETOPTIONS: Request = 0x4200;
 pub(super) const SEIZE: Request = 0x4206;
+pub(super) const LISTEN: Request = 0x4208;
 const GETEVENTMSG: Request = 0x4201;
 const GET_SYSCALL_INFO: Request = 0x420e;
 
@@ -40,6 +39,7 @@ pub(super) const EVENT_CLONE: u32 = 3;
 pub(super) const EVENT_EXEC: u32 = 4;
 pub(super) const EVENT_EXIT: u32 = 6;
 pub(super) const EVENT_SECCOMP: u32 = 7;
+pub(super) const EVENT_STOP: u32 = 128;
 
 pub(super) const WAIT_WALL: libc::c_int = 0x4000_0000;
 pub(super) const SYSCALL_INFO_EXIT: u8 = 2;
