@@ -19,6 +19,42 @@ buck2 kill && buildprof -- sh -c 'buck2 build //... ; buck2 kill'
 sccache --stop-server && buildprof -- sh -c 'cargo build; sccache --stop-server'
 ```
 
+<!-- buildprof.lalitm.com/diagnose/leftovers links here; see infra/buildprof.lalitm.com/assemble-site -->
+## Processes that outlive the command
+
+Recording also waits for background processes the command leaves behind,
+such as a server a test started and never stopped. To stop waiting, give a
+grace period:
+
+```sh
+buildprof --detach-after-exit 10 -- make check
+```
+
+Ten seconds after the command exits, buildprof finishes the recording and
+exits with the command's status. Processes still running are left running,
+but are not recorded further.
+
+<!-- buildprof.lalitm.com/diagnose/sanitizers links here; see infra/buildprof.lalitm.com/assemble-site -->
+## AddressSanitizer and LeakSanitizer
+
+LeakSanitizer checks for leaks by tracing the process itself, which cannot
+happen while buildprof traces it. With file events on, the default,
+buildprof stops tracing a process when its leak check starts, so the check
+and its exit status work as usual. Processes it starts after that are not
+recorded. With `--no-file-events`, the leak check fails; set
+`ASAN_OPTIONS=detect_leaks=0` to skip it.
+
+## sudo and other setuid programs
+
+Setuid programs such as `sudo` gain no privileges under an unprivileged
+tracer. Run buildprof as root and the command as yourself instead:
+
+```sh
+sudo -E env "PATH=$PATH" buildprof --run-as "$(id -un)" -- ./ci.sh
+```
+
+The recording is owned by that user.
+
 <!-- buildprof.lalitm.com/diagnose/containers links here; see infra/buildprof.lalitm.com/assemble-site -->
 ## Builds inside Docker containers
 

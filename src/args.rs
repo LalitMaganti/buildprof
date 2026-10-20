@@ -52,6 +52,16 @@ struct Cli {
     #[usage(long, global)]
     compiler_traces: bool,
 
+    /// After the command exits, wait this long for the processes it started,
+    /// then stop recording any still running and leave them running.
+    #[usage(long, value_name = "SECONDS", global)]
+    detach_after_exit: Option<u64>,
+
+    /// Run the command as USER; buildprof must be root (for example under
+    /// sudo). Lets the command use sudo and other setuid programs.
+    #[usage(long, value_name = "USER", global)]
+    run_as: Option<String>,
+
     /// Do not open the completed trace in a browser.
     #[usage(long, global)]
     no_open: bool,
@@ -159,6 +169,8 @@ pub enum Args {
         command: Vec<OsString>,
         compiler_traces: bool,
         file_events: bool,
+        detach_after_exit: Option<Duration>,
+        run_as: Option<String>,
         /// `None` leaves the trace on disk and prints where to open it.
         handoff: Option<Handoff>,
         wait: Wait,
@@ -196,6 +208,8 @@ fn from_cli(cli: Cli) -> Result<Args, String> {
         command,
         compiler_traces: cli.compiler_traces,
         file_events: !cli.no_file_events,
+        detach_after_exit: cli.detach_after_exit.map(Duration::from_secs),
+        run_as: cli.run_as.clone(),
         handoff: if cli.no_open { None } else { default_handoff() },
         wait,
     };
@@ -302,6 +316,7 @@ mod tests {
             file_events,
             handoff,
             wait,
+            ..
         } = parse_strings(args)
         else {
             panic!("expected record arguments")

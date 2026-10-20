@@ -1,7 +1,8 @@
 // Copyright 2026 The Buildprof Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-//! Seccomp filter used to turn selected filesystem calls into ptrace events.
+//! Seccomp filter used to turn selected filesystem calls, and the call
+//! LeakSanitizer makes before its leak check, into ptrace events.
 
 use std::io;
 
@@ -11,6 +12,10 @@ const RET_ALLOW: u32 = 0x7fff_0000;
 const BPF_LD_W_ABS: u16 = 0x20;
 const BPF_JMP_JEQ_K: u16 = 0x15;
 const BPF_RET_K: u16 = 0x06;
+/// Offset of the low word of the first argument in `struct seccomp_data`.
+const FIRST_ARGUMENT: u32 = 16;
+/// `prctl(PR_SET_PTRACER, …)`: LeakSanitizer lets its own tracer thread attach.
+pub(super) const PR_SET_PTRACER: libc::c_ulong = 0x5961_6d61;
 
 pub(super) unsafe fn install_filter() -> io::Result<()> {
     let mut instructions = vec![SockFilter::statement(BPF_LD_W_ABS, 0)];
@@ -18,6 +23,16 @@ pub(super) unsafe fn install_filter() -> io::Result<()> {
         instructions.push(SockFilter::jump(BPF_JMP_JEQ_K, syscall as u32, 0, 1));
         instructions.push(SockFilter::statement(BPF_RET_K, RET_TRACE));
     }
+    // Only PR_SET_PTRACER stops; other prctl calls are frequent.
+    instructions.push(SockFilter::jump(
+        BPF_JMP_JEQ_K,
+        libc::SYS_prctl as u32,
+        0,
+        3,
+    ));
+    instructions.push(SockFilter::statement(BPF_LD_W_ABS, FIRST_ARGUMENT));
+    instructions.push(SockFilter::jump(BPF_JMP_JEQ_K, PR_SET_PTRACER as u32, 0, 1));
+    instructions.push(SockFilter::statement(BPF_RET_K, RET_TRACE));
     instructions.push(SockFilter::statement(BPF_RET_K, RET_ALLOW));
     let program = SockFprog {
         len: instructions.len() as u16,

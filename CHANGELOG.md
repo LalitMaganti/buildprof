@@ -9,9 +9,20 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- `--detach-after-exit <SECONDS>` stops waiting for processes the command
+  leaves running. Buildprof then exits with the command's status, and the
+  leftover processes keep running unrecorded.
+- `--run-as <USER>` runs the command as USER while buildprof runs as root,
+  so `sudo` and other setuid programs work under recording.
+
 - `buildprof open` accepts a URL. GitHub Actions artifact URLs are downloaded
   with the GitHub CLI and other URLs with `curl`, then served like a local
   recording. The GitHub Action's job summary now prints this command.
+
+### Fixed
+
+- LeakSanitizer leak checks no longer fail under recording with file events
+  on. A process is no longer traced from the start of its leak check.
 
 ## [0.2.8] - 2026-10-17
 

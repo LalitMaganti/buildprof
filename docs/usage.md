@@ -96,6 +96,15 @@ The process timeline remains available, but file lists and producer/consumer
 links are unavailable. This skips filesystem interception itself, rather than
 collecting and discarding events. The UI identifies recordings made this way.
 
+Two options help in CI:
+
+- `--detach-after-exit <SECONDS>` stops waiting for processes the command
+  leaves running, such as a server a test never stopped.
+- `--run-as <USER>`, with buildprof running as root, lets the command use
+  `sudo` and other setuid programs.
+
+See [troubleshooting](troubleshooting.md) for both, and for sanitizers.
+
 ## Compiler details
 
 Process timing is usually the right level for understanding a build. When a

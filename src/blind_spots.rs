@@ -22,6 +22,10 @@ enum BlindSpot {
     /// Rootless Podman setting up its user namespace, which cannot work
     /// under tracing because setuid programs gain no privileges.
     PodmanUserNamespace,
+    /// A process still running after the command exited, left running.
+    Outlived,
+    /// A process that ran a LeakSanitizer leak check, which cannot run traced.
+    LeakCheck,
 }
 
 #[derive(Default)]
@@ -37,6 +41,18 @@ impl BlindSpots {
         }
     }
 
+    pub fn outlived(&mut self, program: &str) {
+        self.seen
+            .entry(BlindSpot::Outlived)
+            .or_insert_with(|| program.to_owned());
+    }
+
+    pub fn leak_check(&mut self, program: &str) {
+        self.seen
+            .entry(BlindSpot::LeakCheck)
+            .or_insert_with(|| program.to_owned());
+    }
+
     pub fn report(&self) {
         for (spot, program) in &self.seen {
             let program = report::emph(program);
@@ -50,6 +66,12 @@ impl BlindSpots {
                 BlindSpot::PodmanUserNamespace => hint!(
                     "rootless Podman could not set up its user namespace while traced; run {} before recording",
                     report::emph("podman info")
+                ),
+                BlindSpot::Outlived => hint!(
+                    "{program} was still running after the command exited; it was left running and is not recorded further"
+                ),
+                BlindSpot::LeakCheck => hint!(
+                    "{program} ran a LeakSanitizer leak check, which cannot run traced; processes it started afterwards are not recorded"
                 ),
             }
             hint!(
@@ -75,6 +97,8 @@ fn topic(spot: BlindSpot) -> &'static str {
         BlindSpot::Container => "containers",
         BlindSpot::Daemon => "daemons",
         BlindSpot::PodmanUserNamespace => "podman",
+        BlindSpot::Outlived => "leftovers",
+        BlindSpot::LeakCheck => "sanitizers",
     }
 }
 
