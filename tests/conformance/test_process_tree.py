@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from .model import load_perfetto
 
@@ -94,3 +95,25 @@ def test_parallel_children_overlap(run_trace, process_fixture: Path):
     children = [process for process in processes.values() if process.pid != root.pid]
     assert all(child.parent_pid == root.pid for child in children)
     assert max(child.start_ns for child in children) < min(child.end_ns for child in children)
+
+
+def test_threads_dying_mid_file_open_do_not_end_the_recording(buildprof: Path, tmp_path: Path):
+    # Threads opening files when their process exits vanish in a ptrace stop;
+    # test suites do this constantly.
+    race = tmp_path / "race.py"
+    race.write_text(
+        "import os, threading, time\n"
+        "def spin():\n"
+        "    while True:\n"
+        "        try: open('/etc/hostname').close()\n"
+        "        except OSError: pass\n"
+        "for _ in range(16): threading.Thread(target=spin, daemon=True).start()\n"
+        "time.sleep(0.05); os._exit(0)\n"
+    )
+    script = f"for i in 1 2 3 4 5 6 7 8; do python3 {race} & done; wait"
+    for attempt in range(10):
+        result = subprocess.run(
+            [str(buildprof), "--no-open", "-o", str(tmp_path / "race.buildprof"), "--", "sh", "-c", script],
+            cwd=tmp_path, text=True, capture_output=True, timeout=60,
+        )
+        assert result.returncode == 0, f"attempt {attempt}: {result.stderr}"

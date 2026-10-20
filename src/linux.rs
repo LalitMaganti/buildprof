@@ -755,7 +755,7 @@ impl Tracer<'_> {
             if tracer > 0 && read_ppid(tracer) == Some(self.tgid_of(tid)) {
                 return self.release_for_leak_check(tid, tracer);
             }
-            return call(CONT, tid, 0, 0).map(|_| ());
+            return ignore_dead(call(CONT, tid, 0, 0));
         }
         if nr == libc::SYS_ptrace && seccomp.args[0] == u64::from(PTRACE_DETACH) {
             // LeakSanitizer's tracer is letting a checked thread go. Queue a
@@ -767,9 +767,9 @@ impl Tracer<'_> {
             {
                 unsafe { libc::syscall(libc::SYS_tgkill, checked, target, libc::SIGSTOP) };
                 self.leak_check_detaches.insert(tid, target);
-                return call(SYSCALL, tid, 0, 0).map(|_| ());
+                return ignore_dead(call(SYSCALL, tid, 0, 0));
             }
-            return call(CONT, tid, 0, 0).map(|_| ());
+            return ignore_dead(call(CONT, tid, 0, 0));
         }
 
         // Resolve rename paths on entry while their directory fds are valid.
@@ -805,7 +805,7 @@ impl Tracer<'_> {
                     },
                 );
             }
-            return call(SYSCALL, tid, 0, 0).map(|_| ());
+            return ignore_dead(call(SYSCALL, tid, 0, 0));
         }
 
         let (path_address, flags) = if is_bare_open(nr) {
@@ -828,7 +828,7 @@ impl Tracer<'_> {
                 flags,
             },
         );
-        call(SYSCALL, tid, 0, 0).map(|_| ())
+        ignore_dead(call(SYSCALL, tid, 0, 0))
     }
 
     fn handle_syscall_stop(&mut self, tid: i32) -> io::Result<()> {
@@ -838,7 +838,7 @@ impl Tracer<'_> {
             };
             if info.op != SYSCALL_INFO_EXIT {
                 self.leak_check_detaches.insert(tid, target);
-                return call(SYSCALL, tid, 0, 0).map(|_| ());
+                return ignore_dead(call(SYSCALL, tid, 0, 0));
             }
             if let Some(&checked) = self.leak_tracers.get(&tid) {
                 self.retrace_thread(checked, target);
@@ -851,7 +851,7 @@ impl Tracer<'_> {
             };
             if info.op != SYSCALL_INFO_EXIT {
                 self.pending_renames.insert(tid, pending);
-                return call(SYSCALL, tid, 0, 0).map(|_| ());
+                return ignore_dead(call(SYSCALL, tid, 0, 0));
             }
             // Only a rename that succeeded moved anything.
             if unsafe { info.data.exit }.rval == 0 {
@@ -870,10 +870,13 @@ impl Tracer<'_> {
         let Some(pending) = self.pending_opens.remove(&tid) else {
             return self.resume(tid, 0);
         };
-        let info = syscall_info(tid)?;
+        // A thread can be killed in any stop, for example by its process's exit.
+        let Some(info) = allow_dead(syscall_info(tid))? else {
+            return Ok(());
+        };
         if info.op != SYSCALL_INFO_EXIT {
             self.pending_opens.insert(tid, pending);
-            return call(SYSCALL, tid, 0, 0).map(|_| ());
+            return ignore_dead(call(SYSCALL, tid, 0, 0));
         }
         let exit = unsafe { info.data.exit };
         if exit.rval >= 0 {

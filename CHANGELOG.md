@@ -23,6 +23,9 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - LeakSanitizer leak checks no longer fail under recording with file events
   on. A process is no longer traced from the start of its leak check.
+- Recording no longer fails with "No such process" when a thread exits
+  while stopped, for example as a multithreaded process exits during a
+  file open; test suites often hit this.
 - A process stopped with SIGSTOP or another job-control signal now stays
   stopped under recording until it is continued, as it would untraced.
   Buildprof attaches with PTRACE_SEIZE and keeps group-stops with
