@@ -95,3 +95,16 @@ def test_run_as_lets_setuid_programs_work(buildprof: Path, tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert result.stdout.split() == [user, "0"]
     assert trace.stat().st_uid != 0
+
+
+def test_allowing_any_tracer_does_not_stop_recording(buildprof: Path, tmp_path: Path):
+    # Valgrind does this for its gdb server; only LeakSanitizer is let go.
+    script = (
+        "import ctypes; libc = ctypes.CDLL(None); "
+        "libc.prctl(0x59616D61, ctypes.c_ulong(2**64 - 1), 0, 0, 0); "
+        "open('after-prctl.txt', 'w').write('ok')"
+    )
+    result, trace, _ = record(buildprof, tmp_path, "--", "python3", "-c", script)
+    assert result.returncode == 0, result.stderr
+    assert "LeakSanitizer" not in result.stderr
+    assert (tmp_path / "after-prctl.txt").read_text() == "ok"

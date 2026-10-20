@@ -711,7 +711,14 @@ impl Tracer<'_> {
         // LeakSanitizer is about to attach its own tracer thread, which fails
         // while we trace the process: let it go before the check starts.
         if nr == libc::SYS_prctl && seccomp.args[0] == PR_SET_PTRACER {
-            return self.release_for_leak_check(tid, seccomp.args[1] as i32);
+            // LeakSanitizer names a task it has just created. Others, such as
+            // valgrind allowing any tracer, keep being traced: once released, a
+            // process that keeps running cannot open files through the filter.
+            let tracer = seccomp.args[1] as i32;
+            if tracer > 0 && read_ppid(tracer) == Some(self.tgid_of(tid)) {
+                return self.release_for_leak_check(tid, tracer);
+            }
+            return call(CONT, tid, 0, 0).map(|_| ());
         }
 
         // Resolve rename paths on entry while their directory fds are valid.
