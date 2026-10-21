@@ -216,7 +216,16 @@ impl Tracer<'_> {
                     return Ok(());
                 };
                 let child_tid = message as i32;
-                let parent_tgid = self.tasks.get(&tid).copied().unwrap_or(tid);
+                // A thread can fork before the tracer has seen the clone that
+                // created it, since the new thread starts running once its
+                // own first stop is handled. Its process is then unknown here,
+                // and the thread id is not a process: ask /proc.
+                let parent_tgid = self
+                    .tasks
+                    .get(&tid)
+                    .copied()
+                    .or_else(|| read_tgid(tid))
+                    .unwrap_or(tid);
                 self.active.insert(child_tid);
                 // Register immediately because clone and child stops race.
                 // Re-registration is harmless.
