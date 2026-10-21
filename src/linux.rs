@@ -92,6 +92,7 @@ pub fn record(
         started: HashSet::from([child]),
         tasks: HashMap::from([(child, child)]),
         newborns: HashMap::new(),
+        unseen_exits: HashSet::new(),
         pending_opens: HashMap::new(),
         pending_renames: HashMap::new(),
         exit_codes: HashMap::new(),
@@ -144,6 +145,10 @@ struct Tracer<'writer> {
     started: HashSet<i32>,
     tasks: HashMap<i32, i32>,
     newborns: HashMap<i32, i32>,
+    // Tasks whose exit arrived before the clone that created them: a thread
+    // that ran and returned before the tracer handled its parent's event.
+    // Their clone must not register them, or they live until the end.
+    unseen_exits: HashSet<i32>,
     pending_opens: HashMap<i32, PendingOpen>,
     pending_renames: HashMap<i32, PendingRename>,
     exit_codes: HashMap<i32, u32>,
@@ -173,6 +178,9 @@ impl Tracer<'_> {
             if !wifstopped(status) {
                 continue;
             }
+            // A stop means the tid is alive, so any earlier unseen exit was a
+            // previous task with the same number.
+            self.unseen_exits.remove(&tid);
 
             // Register the task without assuming which ptrace stop arrived.
             if let Some(parent_tgid) = self.newborns.remove(&tid) {
@@ -216,6 +224,9 @@ impl Tracer<'_> {
                     return Ok(());
                 };
                 let child_tid = message as i32;
+                if self.unseen_exits.remove(&child_tid) {
+                    return self.resume_with_mode(tid, 0);
+                }
                 // A thread can fork before the tracer has seen the clone that
                 // created it, since the new thread starts running once its
                 // own first stop is handled. Its process is then unknown here,
@@ -478,6 +489,9 @@ impl Tracer<'_> {
     }
 
     fn handle_task_exit(&mut self, tid: i32, status: i32) -> io::Result<()> {
+        if !self.tasks.contains_key(&tid) && !self.processes.contains_key(&tid) {
+            self.unseen_exits.insert(tid);
+        }
         self.active.remove(&tid);
         self.started.remove(&tid);
         self.pending_opens.remove(&tid);
