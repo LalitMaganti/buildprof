@@ -166,7 +166,12 @@ impl<'a, S: Sink> Tracker<'a, S> {
     pub fn handle(&mut self, message: Message) -> io::Result<()> {
         let timestamp_ns = self.clock.ns(message.mach_time);
         let pid = message.pid;
-        if !self.processes.contains_key(&pid) {
+        // The collector holds back an open it cannot place until the end of the
+        // recording. Its process has exited by then, but the open still belongs
+        // on that process's file track.
+        let late_open =
+            matches!(message.event, Event::Open { .. }) && self.announced.contains(&pid);
+        if !self.processes.contains_key(&pid) && !late_open {
             // Children started with posix_spawn may reach us as an exec
             // with no fork before it.
             if !matches!(message.event, Event::Exec { .. })
@@ -188,7 +193,12 @@ impl<'a, S: Sink> Tracker<'a, S> {
                 executable,
             } => self.exec(pid, timestamp_ns, argv, cwd, executable)?,
             Event::Exit { stat } => self.exit(pid, timestamp_ns, stat)?,
-            Event::Open { path, flags, fd } => {
+            Event::Open {
+                path,
+                flags,
+                fd,
+                unresolved,
+            } => {
                 announce(self.sink, &mut self.announced, pid)?;
                 self.sink.file_open(
                     pid,
@@ -197,6 +207,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
                         path,
                         flags,
                         fd,
+                        unresolved,
                     },
                 )?
             }
@@ -364,8 +375,11 @@ mod tests {
         }
         fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()> {
             self.0.push(format!(
-                "open {pid} {} {} flags={:o}",
-                open.timestamp_ns, open.path, open.flags
+                "open {pid} {} {} flags={:o}{}",
+                open.timestamp_ns,
+                open.path,
+                open.flags,
+                if open.unresolved { " unresolved" } else { "" }
             ));
             Ok(())
         }
@@ -423,6 +437,50 @@ mod tests {
     }
 
     #[test]
+    fn an_open_held_until_after_its_process_exited_is_recorded() {
+        let mut records = Records::default();
+        let mut blind_spots = BlindSpots::default();
+        let mut tracker = tracker(&mut records, &mut blind_spots, "cc");
+        for message in [
+            at(1010, 10, 1, Event::Fork { child: 11 }),
+            at(1020, 11, 10, exec(&["ld"], "/src")),
+            at(1050, 11, 10, Event::Exit { stat: 0 }),
+            // Placed only at the end of the recording, with its own time.
+            at(
+                1030,
+                11,
+                0,
+                Event::Open {
+                    path: "MacOSX26.sdk/SDKSettings.json".into(),
+                    flags: 0,
+                    fd: 3,
+                    unresolved: true,
+                },
+            ),
+            // A pid that never had a track gets nothing.
+            at(
+                1040,
+                99,
+                0,
+                Event::Open {
+                    path: "/elsewhere".into(),
+                    flags: 0,
+                    fd: 3,
+                    unresolved: false,
+                },
+            ),
+        ] {
+            tracker.handle(message).unwrap();
+        }
+        drop(tracker);
+        let opens: Vec<_> = records.0.iter().filter(|r| r.starts_with("open")).collect();
+        assert_eq!(
+            opens,
+            ["open 11 30 MacOSX26.sdk/SDKSettings.json flags=0 unresolved"]
+        );
+    }
+
+    #[test]
     fn records_a_build_tree() {
         let mut records = Records::default();
         let mut blind_spots = BlindSpots::default();
@@ -441,6 +499,7 @@ mod tests {
                     path: "/src/a.o".into(),
                     flags: 0o1101,
                     fd: 5,
+                    unresolved: false,
                 },
             ),
             at(1040, 12, 10, Event::Exit { stat: 0 }),

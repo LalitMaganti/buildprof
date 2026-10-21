@@ -182,6 +182,9 @@ impl Writer {
                 None,
                 &mut |args| {
                     args.path(&open.path)?;
+                    if open.unresolved {
+                        args.path_unresolved(true)?;
+                    }
                     args.owner_pid(pid)?;
                     args.flags(open.flags)?;
                     args.fd(open.fd)

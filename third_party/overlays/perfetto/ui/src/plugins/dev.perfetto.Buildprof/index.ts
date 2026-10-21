@@ -937,7 +937,11 @@ async function materialise(trace: Trace): Promise<number> {
     as: `
       select
         extract_arg(s.arg_set_id, 'debug.owner_pid') as pid,
-        extract_arg(s.arg_set_id, 'debug.path')      as path,
+        -- A path the recorder could not place is what the kernel reported,
+        -- so it is shown as unknown and can never match a real file.
+        iif(extract_arg(s.arg_set_id, 'debug.path_unresolved'),
+            '<unknown>/' || extract_arg(s.arg_set_id, 'debug.path'),
+            extract_arg(s.arg_set_id, 'debug.path')) as path,
         extract_arg(s.arg_set_id, 'debug.flags')     as flags,
         -- Materialise dependency predicates once for subsequent queries.
         lower(regexp_extract(

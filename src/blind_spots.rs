@@ -9,9 +9,17 @@ use crate::report;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Stable short links, redirected by the site to the README's troubleshooting
-/// sections, so binaries already installed survive README edits.
-const DIAGNOSE_URL: &str = "https://buildprof.lalitm.com/diagnose/";
+/// Stable short links that the site redirects to sections of the docs. Binaries
+/// already installed keep working when the docs change.
+pub const DIAGNOSE_URL: &str = "https://buildprof.lalitm.com/diagnose/";
+
+/// Points at the docs section that explains `topic`.
+pub fn see(topic: &str) {
+    hint!(
+        "see {}",
+        report::emph(format_args!("{DIAGNOSE_URL}{topic}"))
+    );
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum BlindSpot {
@@ -52,10 +60,7 @@ impl BlindSpots {
                     report::emph("podman info")
                 ),
             }
-            hint!(
-                "see {}",
-                report::emph(format_args!("{DIAGNOSE_URL}{}", topic(*spot)))
-            );
+            see(topic(*spot));
         }
     }
 
