@@ -3,9 +3,26 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from .model import load_perfetto
+
+
+@contextmanager
+def one_cpu():
+    """Run the recorder and the build on one CPU.
+
+    Tracer races that need the build to run between two of the tracer's
+    waitpid calls are rare on a machine with many idle CPUs and common on one.
+    """
+    previous = os.sched_getaffinity(0)
+    os.sched_setaffinity(0, {min(previous)})
+    try:
+        yield
+    finally:
+        os.sched_setaffinity(0, previous)
 
 
 def root_of(processes):
@@ -100,17 +117,26 @@ def test_children_of_new_threads_are_parented_to_their_process(
     run_trace, process_fixture: Path
 ):
     # Each thread forks as soon as it starts, so the tracer can see a thread's
-    # fork before the clone that created the thread. This races, so it fails
-    # only some of the time where it is broken: on GitHub's runners, often.
-    result, trace = run_trace(process_fixture, "thread-forks", "64")
+    # fork before the clone that created the thread. The race needs the
+    # threaded program to be a descendant, as in a real build, not the root;
+    # the trailing `true` stops sh from exec'ing it in place.
+    with one_cpu():
+        result, trace = run_trace("sh", "-c", f"{process_fixture} thread-forks 64; true")
     assert result.returncode == 0
     processes = load_perfetto(trace)
     assert_structurally_valid(processes)
-    assert len(processes) == 65
+    assert len(processes) == 66
 
-    root = root_of(processes)
-    children = [process for process in processes.values() if process.pid != root.pid]
-    assert all(child.parent_pid == root.pid for child in children)
+    forker = next(
+        process
+        for process in processes.values()
+        if any(
+            segment.name == "process-fixture" and "thread-forks" in segment.command
+            for segment in process.segments
+        )
+    )
+    children = [p for p in processes.values() if p.parent_pid == forker.pid]
+    assert len(children) == 64
 
 
 def test_threads_that_return_at_once_are_not_recorded_as_processes(
@@ -119,8 +145,9 @@ def test_threads_that_return_at_once_are_not_recorded_as_processes(
     # A thread can exit before the tracer handles the clone that made it.
     # Recording it then as a fork that never exits leaves a phantom process
     # running until the end of the recording.
-    result, trace = run_trace(process_fixture, "short-threads", "64")
+    with one_cpu():
+        result, trace = run_trace("sh", "-c", f"{process_fixture} short-threads 64; true")
     assert result.returncode == 0
     processes = load_perfetto(trace)
     assert_structurally_valid(processes)
-    assert len(processes) == 1
+    assert len(processes) == 2
