@@ -5,6 +5,20 @@ creation, execution, and exit through the complete descendant tree. A seccomp
 filter lets it stop only for the filesystem operations it records instead of
 paying the cost of intercepting every system call.
 
+On macOS, Buildprof reads the kernel's trace events instead. Starting a trace
+session needs root. Once the session exists, though, the kernel keeps letting
+the process that owns it read from it. Buildprof therefore holds root only
+while it starts. It sets up the session and gives up root for good. Only then
+does it run the build and write the trace, as the person who started it.
+
+Buildprof gets root by running itself again through `sudo`. It first checks
+whether sudo would let it in without a password. If not, it asks for one only
+when stdin is a terminal, and otherwise stops with an error. The recording then
+runs with `sudo -n`, so it never stops to ask. sudo resets the
+environment, so Buildprof first saves its own to a file that only you can
+read. The copy that sudo runs reads that file after it has given up root, and
+deletes it.
+
 The recorder writes a Perfetto protobuf trace directly. Perfetto provides the
 storage format, query engine, and core timeline interactions; Buildprof adds
 the build-specific view on top, including process ancestry, command types,
