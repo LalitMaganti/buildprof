@@ -42,6 +42,10 @@ static void self_path(char *buffer, size_t size) {
     buffer[length] = '\0';
 }
 
+static void *return_at_once(void *unused) {
+    return unused;
+}
+
 // A thread that starts a child as soon as it exists, before the tracer may
 // have seen the thread itself.
 static void *fork_from_thread(void *executable) {
@@ -147,6 +151,18 @@ int main(int argc, char **argv) {
             if (child_result && !result) result = child_result;
         }
         return result;
+    }
+
+    if (!strcmp(argv[1], "short-threads")) {
+        if (argc != 3) return 64;
+        int count = atoi(argv[2]);
+        if (count < 1 || count > 64) return 64;
+        pthread_t threads[64];
+        for (int i = 0; i < count; ++i) {
+            if (pthread_create(&threads[i], NULL, return_at_once, NULL)) return 117;
+        }
+        for (int i = 0; i < count; ++i) pthread_join(threads[i], NULL);
+        return 0;
     }
 
     if (!strcmp(argv[1], "thread-forks")) {
