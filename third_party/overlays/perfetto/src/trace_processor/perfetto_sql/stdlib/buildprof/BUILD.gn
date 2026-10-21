@@ -17,6 +17,7 @@ import("../../../../../gn/perfetto_sql.gni")
 perfetto_sql_source_set("buildprof") {
   sources = [
     "concurrency.sql",
+    "options.sql",
     "processes.sql",
   ]
 }

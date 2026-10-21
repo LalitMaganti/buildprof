@@ -56,6 +56,11 @@ import type { Pivot } from "../../components/widgets/datagrid/model";
 import { showBuildprofHelp } from "../../core/embedder/buildprof_help";
 import { Intent } from "../../widgets/common";
 import { VERSION } from "../../virtual/version";
+import {
+  loadProcessOptions,
+  type ProcessOptions,
+  renderProcessOptions,
+} from "./options";
 
 // Sharing is switched off until there is a sustainable way to host uploads;
 // the menu item explains that and points at the tracking issue.
@@ -2056,6 +2061,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
   private consumers: DepUse[] = [];
   private producerCount = 0;
   private consumerCount = 0;
+  private options?: ProcessOptions;
 
   constructor(
     private readonly trace: Trace,
@@ -2080,8 +2086,15 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
       group by path
     `;
 
-    const [segments, childTotals, childTop, fileTotals, fileRows, collection] =
-      await Promise.all([
+    const [
+      segments,
+      childTotals,
+      childTop,
+      fileTotals,
+      fileRows,
+      collection,
+      options,
+    ] = await Promise.all([
         this.querySegments(`pid = ${this.pid}`),
         e.query(`
           select count(*) as cnt, ifnull(sum(dur), 0) as total
@@ -2110,7 +2123,9 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
           from metadata
           where name = 'trace_attribute.buildprof.file_events' and int_value = 0
         `),
+        loadProcessOptions(this.trace, this.pid),
       ]);
+    this.options = options;
     // Older recordings predate the setting and collected files by default.
     this.fileEvents = collection.firstRow({ disabled: NUM }).disabled === 0;
 
@@ -2571,6 +2586,8 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
               ),
             ),
           ),
+          this.options !== undefined &&
+            renderProcessOptions(this.options),
           m(
             Section,
             { title: "Process" },
