@@ -1,8 +1,69 @@
 {
-  "_": "The words for what the buildprof SQL package names by key. A front end renders a template by substituting its {variables}; the SQL never builds a string. Shared by every front end, so they all say the same thing. A key has no dot in it: a dot joins keys. Text in backticks is code.",
+  "_": "The words for what the buildprof SQL package names by key. A front end renders a template by substituting its {variables}; the SQL never builds a string. Shared by every front end, so they all say the same thing. A key has no dot in it: a dot joins keys. Text in backticks is code. Write for the person whose build this is: times are measured, so say them plainly; causes are read from command lines, so offer them as likely, never certain, and never call a setting a mistake. 'what' says what happened; 'try' says what they could do about it.",
+  "insight": {
+    "tab": "Insights ({count})",
+    "headline": {
+      "one": "One thing held your build up",
+      "many": "{count} things held your build up"
+    },
+    "hint": "Click one to see what happened and what you could try.",
+    "kind_label": "What we saw",
+    "time_label": "Time spent",
+    "time": "{dur}, {share} of the build",
+    "share": "{share} of the build",
+    "what_title": "What happened",
+    "try_title": "What you could try",
+    "blamed_option": "We've highlighted {option} in the options below, so you can see exactly what was passed.",
+    "ran_alone": {
+      "label": "Waited on one process",
+      "label_plain": "Your build waited on this one process",
+      "title": "`{process}` was the only thing running for {dur}",
+      "what": {
+        "codegen_units": "For {dur}, your build had nothing to do but wait for this compile, and for most of that time it was working on a single core. It was built with `-Ccodegen-units=1`, which keeps the whole crate in one piece so rustc can optimize it as a unit. That may well be on purpose.",
+        "unoptimized_build_script": "For {dur}, your build had nothing to do but wait for this build script. Cargo compiles build scripts without optimization unless told otherwise, because most of them do very little. If this one does real work, like generating code or crunching data, unoptimized code can be many times slower.",
+        "none": "For {dur}, this was the only thing your build was doing: everything else had either finished or was waiting for it. That isn't necessarily a problem, since some steps really do depend on each other."
+      },
+      "try": {
+        "codegen_units": "If this build doesn't need that last bit of optimization, give rustc more codegen units. In your `Cargo.toml`:\n```\n[profile.{profile}]\ncodegen-units = 16\n```",
+        "codegen_units_cargo_fuzz": "`cargo fuzz` uses one codegen unit unless you ask for more. If a faster build matters more here than the fastest possible fuzzer, ask for more:\n```\ncargo fuzz build --codegen-units 16\n```",
+        "unoptimized_build_script": "Ask Cargo to compile build scripts with optimization. In your `Cargo.toml`:\n```\n[profile.{profile}.build-override]\nopt-level = 3\n```",
+        "none": "Start with the Dependencies section below: it shows what this process read and which processes made it. If any of that could be ready sooner, or this work could be split, the whole build gets shorter."
+      }
+    },
+    "serial_driver": {
+      "label": "Jobs run one at a time",
+      "label_plain": "Its jobs ran one at a time",
+      "title": "`{process}` ran its {count} jobs one after another",
+      "what": {
+        "serial_by_default": "`{tool}` ran {count} jobs here, one after another, and for {dur} nothing else in your build was running. `{tool}` only runs one job at a time unless you ask it to do more.",
+        "one_job": "`{tool}` was told to run one job at a time, so its {count} jobs ran one after another, and for {dur} nothing else in your build was running. There may be a good reason, like tests that can't share a machine or a tight memory limit.",
+        "none": "These {count} jobs ran strictly one after another, and for {dur} nothing else in your build was running. We couldn't find a setting that explains it, so each job may genuinely need the one before it."
+      },
+      "try": {
+        "serial_by_default_make": "Tell `make` how many jobs it may run at once:\n```\n{command}\n```\nOr set `MAKEFLAGS=-j$(nproc)` in the environment, so every `make` your build starts picks it up.",
+        "serial_by_default_gmake": "Tell `make` how many jobs it may run at once:\n```\n{command}\n```\nOr set `MAKEFLAGS=-j$(nproc)` in the environment, so every `make` your build starts picks it up.",
+        "serial_by_default_ctest": "Ask `ctest` to run tests side by side:\n```\n{command}\n```\nIf some tests can't share a machine, you can keep just those apart.",
+        "one_job": "Let `{tool}` run more jobs at once:\n```\n{command}\n```\nIf the limit is there for a reason, check that it still holds first.",
+        "none": "The Process tree section below lists these jobs. If they don't depend on each other, look at whatever starts them: it may be waiting for each one to finish."
+      }
+    },
+    "repeated_command": {
+      "label": "Same command, over and over",
+      "label_plain": "The same command ran over and over",
+      "title": "`{command}` ran {count} times",
+      "what": {
+        "none": "Your build ran this exact command {count} times, and together those runs took {dur}. This is easy to miss: it's usually a test helper or a build script that looks something up every time it's called."
+      },
+      "try": {
+        "none": "Most of these runs came from `{process}`, so that's the place to look. If the answer doesn't change between runs, work it out once and pass it down, in an environment variable or a file."
+      }
+    },
+    "learn_more": "Learn more"
+  },
   "options": {
     "title": "How {tool} was run",
     "default": "{value} (the default)",
+    "why": "Why this is highlighted",
     "measured": "{average} at a time on average, {peak} at most",
     "measured_title": "actually ran",
     "name": {

@@ -20,6 +20,7 @@ third_party/src/
 !/docs/usage.md
 !/docs/build-systems.md
 !/docs/troubleshooting.md
+!/docs/insights.md
 !/docs/internals.md
 !/docs/data-loss.md
 !/docs/root-policy.md
@@ -28,6 +29,7 @@ third_party/src/
 !/docs/assets/ripgrep-release-clean.png
 !/docs/assets/ripgrep-tour-*.png
 !/docs/assets/compiler-*.png
+!/docs/assets/insights/
 
 # Local article capture tooling and intermediate outputs.
 /tools/capture_blog_*.mjs

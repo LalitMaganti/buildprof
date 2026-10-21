@@ -1,0 +1,79 @@
+// The insights drawer, modelled on Trace Doctor's: an intro line, then a card
+// per insight with its kind, its cost and a bar for its share of the build.
+.bt-insights {
+  padding: 12px;
+  overflow-y: auto;
+
+  &__headline {
+    font-size: var(--pf-font-size-xl);
+    font-weight: 600;
+    color: var(--pf-color-text);
+  }
+
+  &__hint {
+    margin: 2px 0 12px;
+    color: var(--pf-color-text-muted);
+    font-size: var(--pf-font-size-m);
+  }
+
+  &__tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 10px;
+  }
+
+  &__tile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-top: 3px solid transparent;
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  &__label {
+    font-size: var(--pf-font-size-s);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: var(--pf-color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__cost {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    font-size: var(--pf-font-size-s);
+    color: var(--pf-color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__bar {
+    flex: 0 0 auto;
+    width: 48px;
+    height: 6px;
+    background: var(--pf-color-border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  &__bar-fill {
+    height: 100%;
+    border-radius: 3px;
+  }
+
+  &__title {
+    font-size: var(--pf-font-size-m);
+    line-height: 1.4;
+  }
+}
+

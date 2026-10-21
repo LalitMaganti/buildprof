@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import "./data_loss.scss";
+import "./insights.scss";
 import "./topbar.scss";
 import m from "mithril";
 import type { App } from "../../public/app";
@@ -56,6 +57,14 @@ import type { Pivot } from "../../components/widgets/datagrid/model";
 import { showBuildprofHelp } from "../../core/embedder/buildprof_help";
 import { Intent } from "../../widgets/common";
 import { VERSION } from "../../virtual/version";
+import {
+  blamedOptions,
+  type Insight,
+  InsightIcons,
+  loadInsights,
+  registerInsightsTab,
+  renderInsightSections,
+} from "./insights";
 import {
   loadProcessOptions,
   type ProcessOptions,
@@ -429,6 +438,16 @@ export default class BuildprofPlugin implements PerfettoPlugin {
     );
     await buildConcurrencyTrack(trace);
     await buildProcessTreeTrack(trace, detailsPanels);
+    const insights = await loadInsights(trace, { life: T.life, tree: T.tree });
+    detailsPanels.setInsights(insights);
+    registerInsightsTab(trace, insights, (insight) => {
+      void trace.selection
+        .selectTrackEvent(PROCESS_TRACK_URI, insight.sliceId)
+        .then(() => trace.selection.scrollToSelection("focus"));
+    });
+    trace.tracks.registerOverlay(
+      new InsightIcons(trace, PROCESS_TRACK_URI, insights),
+    );
     registerBuildprofSearch(trace);
     registerAggregationTab(trace);
 
@@ -1658,12 +1677,18 @@ function compilerThreadEventsSql(
  */
 class ProcessDetailsPanels {
   private readonly panels = new Map<number, ProcessDetailsPanel>();
+  private insights: ReadonlyArray<Insight> = [];
 
   constructor(
     private readonly trace: Trace,
     private readonly dependencyArrows: DependencyArrows,
     private readonly compilerTracks: CompilerTracks,
   ) {}
+
+  setInsights(insights: ReadonlyArray<Insight>): void {
+    this.insights = insights;
+    this.panels.clear();
+  }
 
   get(pid: number): ProcessDetailsPanel {
     const cached = this.panels.get(pid);
@@ -1673,6 +1698,7 @@ class ProcessDetailsPanels {
       pid,
       this.dependencyArrows,
       this.compilerTracks,
+      this.insights.filter((insight) => insight.pid === pid),
     );
     this.panels.set(pid, panel);
     return panel;
@@ -2068,6 +2094,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
     private readonly pid: number,
     private readonly dependencyArrows: DependencyArrows,
     private readonly compilerTracks: CompilerTracks,
+    private readonly insights: ReadonlyArray<Insight>,
   ) {}
 
   /**
@@ -2525,6 +2552,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
             })
           : undefined,
       },
+      renderInsightSections(this.insights),
       m(
         GridLayout,
         m(
@@ -2587,7 +2615,7 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
             ),
           ),
           this.options !== undefined &&
-            renderProcessOptions(this.options),
+            renderProcessOptions(this.options, blamedOptions(this.insights)),
           m(
             Section,
             { title: "Process" },

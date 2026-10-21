@@ -34,6 +34,19 @@ CACHE_CONTROL = "Cache-Control: public, max-age=31536000, immutable"
 ZSTD_MAGIC = bytes.fromhex("28b52ffd")
 PAGES_ASSET_LIMIT = 25 * 1024 * 1024
 
+# The UI links each insight to /insights/<rule>/<cause>; these send it to the
+# section of docs/insights.md that explains it. Update the anchors here when
+# the headings change, so links in deployed UIs keep working.
+INSIGHT_ANCHORS = {
+    "ran-alone/codegen-units": "a-compile-with-one-codegen-unit",
+    "ran-alone/unoptimized-build-script": "an-unoptimized-build-script",
+    "ran-alone/none": "a-process-the-build-waited-on",
+    "serial-driver/serial-by-default": "jobs-run-one-at-a-time-by-default",
+    "serial-driver/one-job": "a-tool-told-to-run-one-job-at-a-time",
+    "serial-driver/none": "jobs-that-never-overlapped",
+    "repeated-command/none": "the-same-command-run-over-and-over",
+}
+
 
 def run(*args: str | Path, capture: bool = False) -> str:
     result = subprocess.run(
@@ -128,6 +141,7 @@ def main() -> int:
         "https://github.com/LalitMaganti/buildprof/blob/main/docs/troubleshooting.md"
     )
     data_loss = "https://github.com/LalitMaganti/buildprof/blob/main/docs/data-loss.md"
+    insights = "https://github.com/LalitMaganti/buildprof/blob/main/docs/insights.md"
     (site / "_redirects").write_text(
         "/install.sh https://github.com/LalitMaganti/buildprof/releases/latest/download/buildprof-installer.sh 302\n"
         f"/diagnose/containers {troubleshooting}#builds-inside-docker-containers 302\n"
@@ -136,6 +150,10 @@ def main() -> int:
         f"/diagnose/dropped-events {data_loss}#dropped-events 302\n"
         f"/diagnose/unnamed-processes {data_loss}#processes-named-after-their-program 302\n"
         "/diagnose/root https://github.com/LalitMaganti/buildprof/blob/main/docs/root-policy.md 302\n"
+        + "".join(
+            f"/insights/{path} {insights}#{anchor} 302\n"
+            for path, anchor in INSIGHT_ANCHORS.items()
+        )
     )
 
     if args.headers is not None:
