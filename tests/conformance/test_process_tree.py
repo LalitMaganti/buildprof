@@ -94,3 +94,20 @@ def test_parallel_children_overlap(run_trace, process_fixture: Path):
     children = [process for process in processes.values() if process.pid != root.pid]
     assert all(child.parent_pid == root.pid for child in children)
     assert max(child.start_ns for child in children) < min(child.end_ns for child in children)
+
+
+def test_children_of_new_threads_are_parented_to_their_process(
+    run_trace, process_fixture: Path
+):
+    # Each thread forks as soon as it starts, so the tracer can see a thread's
+    # fork before the clone that created the thread. This races, so it fails
+    # only some of the time where it is broken: on GitHub's runners, often.
+    result, trace = run_trace(process_fixture, "thread-forks", "64")
+    assert result.returncode == 0
+    processes = load_perfetto(trace)
+    assert_structurally_valid(processes)
+    assert len(processes) == 65
+
+    root = root_of(processes)
+    children = [process for process in processes.values() if process.pid != root.pid]
+    assert all(child.parent_pid == root.pid for child in children)
