@@ -111,3 +111,16 @@ def test_children_of_new_threads_are_parented_to_their_process(
     root = root_of(processes)
     children = [process for process in processes.values() if process.pid != root.pid]
     assert all(child.parent_pid == root.pid for child in children)
+
+
+def test_threads_that_return_at_once_are_not_recorded_as_processes(
+    run_trace, process_fixture: Path
+):
+    # A thread can exit before the tracer handles the clone that made it.
+    # Recording it then as a fork that never exits leaves a phantom process
+    # running until the end of the recording.
+    result, trace = run_trace(process_fixture, "short-threads", "64")
+    assert result.returncode == 0
+    processes = load_perfetto(trace)
+    assert_structurally_valid(processes)
+    assert len(processes) == 1
