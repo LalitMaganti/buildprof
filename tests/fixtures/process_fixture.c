@@ -4,6 +4,8 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +40,18 @@ static void self_path(char *buffer, size_t size) {
         exit(113);
     }
     buffer[length] = '\0';
+}
+
+// A thread that starts a child as soon as it exists, before the tracer may
+// have seen the thread itself.
+static void *fork_from_thread(void *executable) {
+    pid_t child = fork();
+    if (child == 0) {
+        execl(executable, executable, "leaf", NULL);
+        _exit(127);
+    }
+    if (child < 0) return (void *)1;
+    return (void *)(intptr_t)wait_for(child);
 }
 
 int main(int argc, char **argv) {
@@ -131,6 +145,27 @@ int main(int argc, char **argv) {
         for (int i = 0; i < count; ++i) {
             int child_result = wait_for(children[i]);
             if (child_result && !result) result = child_result;
+        }
+        return result;
+    }
+
+    if (!strcmp(argv[1], "thread-forks")) {
+        if (argc != 3) return 64;
+        int count = atoi(argv[2]);
+        if (count < 1 || count > 64) return 64;
+        static char executable[4096];
+        self_path(executable, sizeof(executable));
+        pthread_t threads[64];
+        for (int i = 0; i < count; ++i) {
+            if (pthread_create(&threads[i], NULL, fork_from_thread, executable)) {
+                return 117;
+            }
+        }
+        int result = 0;
+        for (int i = 0; i < count; ++i) {
+            void *thread_result;
+            pthread_join(threads[i], &thread_result);
+            if (thread_result && !result) result = (int)(intptr_t)thread_result;
         }
         return result;
     }
