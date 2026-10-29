@@ -9,12 +9,12 @@ Subject: nopr: allow embedders to override the UI version directory
  2 files changed, 17 insertions(+), 3 deletions(-)
 
 diff --git a/ui/build.mjs b/ui/build.mjs
-index 8b6ee9d6a1..14633214bb 100644
+index afcf467f..4044d982 100644
 --- a/ui/build.mjs
 +++ b/ui/build.mjs
-@@ -249,6 +249,10 @@ Env-var overrides:
-   parser.add_argument('--title', {
-     help: 'Override the page title (useful for distinguishing multiple instances)',
+@@ -259,6 +259,10 @@ Env-var overrides:
+     help: 'Hot-swap edited Mithril component modules (remounting the tree) ' +
+           'instead of reloading the page. Only applies to the Vite dev server.',
    });
 +  parser.add_argument('--version-dir', {
 +    help: 'Override the version string and dist/<version>/ directory name ' +
@@ -23,7 +23,7 @@ index 8b6ee9d6a1..14633214bb 100644
  
    // Load ~/.config/perfetto/ui-dev-server.env defaults, then map any
    // PERFETTO_UI_* env vars to synthetic argv entries prepended before the
-@@ -287,8 +291,15 @@ Env-var overrides:
+@@ -297,8 +301,15 @@ Env-var overrides:
    cfg.outUiTestArtifactsDir = ensureDir(pjoin(cfg.outDir, 'ui-test-artifacts'));
    cfg.outExtDir = ensureDir(pjoin(cfg.outUiDir, 'chrome_extension'));
    cfg.outDistRootDir = ensureDir(pjoin(cfg.outUiDir, 'dist'));
@@ -42,10 +42,10 @@ index 8b6ee9d6a1..14633214bb 100644
    cfg.outTscDir = ensureDir(pjoin(cfg.outUiDir, 'tsc'));
    cfg.outGenDir = ensureDir(pjoin(cfg.outUiDir, 'tsc/gen'));
 diff --git a/ui/vite.config.mjs b/ui/vite.config.mjs
-index 0bcf68ee90..b79bf2c371 100644
+index f995420b..9c16d358 100644
 --- a/ui/vite.config.mjs
 +++ b/ui/vite.config.mjs
-@@ -172,7 +172,10 @@ export function pluginPerfettoVersion() {
+@@ -174,7 +174,10 @@ export function pluginPerfettoVersion() {
    const SCRIPT = path.join(ROOT_DIR, 'tools/write_version_header.py');
    const generate = () => {
      const out = execFileSync('python3', [SCRIPT, '--json'], {encoding: 'utf8'});

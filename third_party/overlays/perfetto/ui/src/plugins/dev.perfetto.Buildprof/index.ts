@@ -1118,7 +1118,7 @@ function buildprofSliceColor(name: string): ColorScheme {
     return BUILD_SYSTEM_COLOR;
   }
   if (/^(?:python\d*|node|perl|ruby)$/.test(tool)) return SCRIPT_COLOR;
-  return TOOL_COLORS[stableColorIndex(tool)];
+  return TOOL_COLORS[stableColorIndex(tool)]!;
 }
 
 const CONCURRENCY_COLOR_BANDS: ReadonlyArray<ConcurrencyColorBand> = [
@@ -1551,9 +1551,9 @@ class CompilerTracks {
         tracks.name,
       );
       if (match === null) continue;
-      const backend = match[1];
-      const pid = Number(match[2]);
-      const threadId = Number(match[3]);
+      const backend = match[1]!;
+      const pid = Number(match[2]!);
+      const threadId = Number(match[3]!);
       const key = `${pid}:${backend}`;
       const invocation = grouped.get(key) ?? { pid, backend, tracks: [] };
       invocation.tracks.push({ id: tracks.track_id, threadId });
@@ -1619,7 +1619,7 @@ class CompilerTracks {
     }
     this.trace.raf.scheduleFullRedraw();
     this.trace.scrollTo({
-      track: { uri: invocations[0].uri, expandGroup: true },
+      track: { uri: invocations[0]!.uri, expandGroup: true },
     });
   }
 
@@ -1962,8 +1962,8 @@ function toProcesses(segments: ReadonlyArray<Segment>): ProcInfo[] {
   }
   const out: ProcInfo[] = [];
   for (const segs of byPid.values()) {
-    const first = segs[0];
-    const last = segs[segs.length - 1];
+    const first = segs[0]!;
+    const last = segs[segs.length - 1]!;
     let exitCode: number | null = null;
     for (const seg of segs) {
       if (seg.exitCode !== null) exitCode = seg.exitCode;
@@ -1999,8 +1999,8 @@ function elidePathHead(path: string): string {
 function explainExecs(proc: ProcInfo): string | undefined {
   if (proc.segments.length < 2) return undefined;
 
-  const first = proc.segments[0];
-  const last = proc.segments[proc.segments.length - 1];
+  const first = proc.segments[0]!;
+  const last = proc.segments[proc.segments.length - 1]!;
   const from = basename(executableOf(first.cmd));
   const to = executableOf(last.cmd);
 
@@ -2015,7 +2015,7 @@ function explainExecs(proc: ProcInfo): string | undefined {
 
   let beforeLast = 0n;
   for (let i = 0; i < proc.segments.length - 1; i++) {
-    beforeLast += proc.segments[i].durNs;
+    beforeLast += proc.segments[i]!.durNs;
   }
   return (
     `${proc.segments.length} programs ran under this pid, ending with ${to}. ` +

@@ -9,7 +9,7 @@ Subject: nopr: allow the Buildprof sharing service through the service worker
  1 file changed, 3 insertions(+)
 
 diff --git a/ui/src/service_worker/service_worker.ts b/ui/src/service_worker/service_worker.ts
-index 29f78e6360..83cb443c1a 100644
+index 29f78e63..83cb443c 100644
 --- a/ui/src/service_worker/service_worker.ts
 +++ b/ui/src/service_worker/service_worker.ts
 @@ -63,6 +63,9 @@ const ALLOWLISTED_DOMAINS = [

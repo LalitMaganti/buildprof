@@ -30,7 +30,7 @@ index e616d573..c3c52401 100644
 +  }
 +}
 diff --git a/ui/src/core/load_trace.ts b/ui/src/core/load_trace.ts
-index e21e8508..d7c5158b 100644
+index d7db738a..5efafe55 100644
 --- a/ui/src/core/load_trace.ts
 +++ b/ui/src/core/load_trace.ts
 @@ -13,6 +13,8 @@
@@ -191,7 +191,7 @@ index 00000000..d5f88fb3
 +  });
 +}
 diff --git a/ui/src/frontend/error_dialog.ts b/ui/src/frontend/error_dialog.ts
-index eade8c02..29330940 100644
+index cef3d5f1..5f0d53b2 100644
 --- a/ui/src/frontend/error_dialog.ts
 +++ b/ui/src/frontend/error_dialog.ts
 @@ -29,6 +29,8 @@ import {Callout} from '../widgets/callout';
@@ -203,7 +203,7 @@ index eade8c02..29330940 100644
  
  const MODAL_KEY = 'crash_modal';
  
-@@ -489,6 +491,11 @@ class TraceParseErrorComponent implements m.ClassComponent<TraceParseErrorAttrs>
+@@ -490,6 +492,11 @@ class TraceParseErrorComponent implements m.ClassComponent<TraceParseErrorAttrs>
  
  function showTraceFetchError(message: string) {
    const details = message.replace(/\s*\(ERR:trace_fetch\)/g, '').trim();

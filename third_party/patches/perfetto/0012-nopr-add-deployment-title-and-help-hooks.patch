@@ -10,7 +10,7 @@ Subject: nopr: add deployment title and help hooks
  3 files changed, 13 insertions(+), 7 deletions(-)
 
 diff --git a/ui/src/core/embedder/embedder.ts b/ui/src/core/embedder/embedder.ts
-index 2dc9b8658c..fa95640419 100644
+index 2dc9b865..fa956404 100644
 --- a/ui/src/core/embedder/embedder.ts
 +++ b/ui/src/core/embedder/embedder.ts
 @@ -55,6 +55,12 @@ export interface BrandingBadge {
@@ -27,7 +27,7 @@ index 2dc9b8658c..fa95640419 100644
    // should not be enabled for this embedder.
    readonly analyticsId: string | undefined;
 diff --git a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
-index 13f797f5b3..40a84cf0c7 100644
+index 1e9c081f..a3dd49f6 100644
 --- a/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
 +++ b/ui/src/core_plugins/dev.perfetto.CoreCommands/index.ts
 @@ -156,7 +156,7 @@ export default class CoreCommands implements PerfettoPlugin {
@@ -40,7 +40,7 @@ index 13f797f5b3..40a84cf0c7 100644
      });
  
 diff --git a/ui/src/frontend/ui_main.ts b/ui/src/frontend/ui_main.ts
-index 7ad231f40d..3bd0d8bf3f 100644
+index a47d4cd8..e197acbb 100644
 --- a/ui/src/frontend/ui_main.ts
 +++ b/ui/src/frontend/ui_main.ts
 @@ -31,10 +31,6 @@ const showStatusBarFlag = featureFlags.register({

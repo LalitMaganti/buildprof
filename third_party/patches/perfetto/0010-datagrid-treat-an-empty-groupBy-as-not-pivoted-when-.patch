@@ -16,10 +16,10 @@ not pivoted in both places.
  1 file changed, 7 insertions(+), 1 deletion(-)
 
 diff --git a/ui/src/components/widgets/datagrid/datagrid.ts b/ui/src/components/widgets/datagrid/datagrid.ts
-index 56ebda9686..38a414e5be 100644
+index f5435eee..af100128 100644
 --- a/ui/src/components/widgets/datagrid/datagrid.ts
 +++ b/ui/src/components/widgets/datagrid/datagrid.ts
-@@ -776,7 +776,13 @@ export class DataGrid implements m.ClassComponent<DataGridAttrs> {
+@@ -855,7 +855,13 @@ export class DataGrid implements m.ClassComponent<DataGridAttrs> {
            .sort((a, b) => (a.alias < b.alias ? -1 : a.alias > b.alias ? 1 : 0)),
        };
        return flatModel;

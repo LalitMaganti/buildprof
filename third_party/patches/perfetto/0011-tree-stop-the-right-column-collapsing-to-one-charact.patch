@@ -13,7 +13,7 @@ Let the left column shrink and wrap, and give the right one a floor.
  1 file changed, 13 insertions(+), 3 deletions(-)
 
 diff --git a/ui/src/widgets/tree.scss b/ui/src/widgets/tree.scss
-index 6bd940e054..4cc882ad99 100644
+index 6bd940e0..4cc882ad 100644
 --- a/ui/src/widgets/tree.scss
 +++ b/ui/src/widgets/tree.scss
 @@ -18,7 +18,10 @@ $chevron-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'

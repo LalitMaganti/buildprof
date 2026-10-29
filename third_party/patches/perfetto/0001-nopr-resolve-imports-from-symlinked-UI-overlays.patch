@@ -8,10 +8,10 @@ Subject: nopr: resolve imports from symlinked UI overlays
  1 file changed, 53 insertions(+)
 
 diff --git a/ui/vite.config.mjs b/ui/vite.config.mjs
-index 88698c98b3..0bcf68ee90 100644
+index 452a845e..f995420b 100644
 --- a/ui/vite.config.mjs
 +++ b/ui/vite.config.mjs
-@@ -184,6 +184,58 @@ export function pluginPerfettoVersion() {
+@@ -186,6 +186,58 @@ export function pluginPerfettoVersion() {
    });
  }
  
@@ -70,11 +70,11 @@ index 88698c98b3..0bcf68ee90 100644
  function pluginGenRelativeImports() {
    return {
      name: 'perfetto:gen-relative-imports',
-@@ -285,6 +337,7 @@ export default defineConfig(({command}) => {
+@@ -487,6 +539,7 @@ export default defineConfig(({command}) => {
        // Compiles *.grammar files (lezer parser definitions) on import. Replaces
        // the old "manually run lezer-generator and commit gen/*.js" workflow.
        lezer(),
 +      pluginOverlayDepResolution(),
        pluginGenRelativeImports(),
        ...(isBuild ? [] : [pluginGenWasmGlueEsm()]),
-       ...(NO_SOURCE_MAPS ? [] : [pluginEmbedMinimalSourceMap()]),
+       ...(!isBuild && EXPERIMENTAL_MITHRIL_HMR ? [pluginMithrilHmr()] : []),

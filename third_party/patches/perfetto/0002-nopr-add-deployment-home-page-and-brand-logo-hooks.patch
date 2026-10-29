@@ -10,7 +10,7 @@ Subject: nopr: add deployment home page and brand logo hooks
  3 files changed, 27 insertions(+), 2 deletions(-)
 
 diff --git a/ui/src/core/embedder/embedder.ts b/ui/src/core/embedder/embedder.ts
-index bdde74c313..3fb965daa7 100644
+index bdde74c3..3fb965da 100644
 --- a/ui/src/core/embedder/embedder.ts
 +++ b/ui/src/core/embedder/embedder.ts
 @@ -12,6 +12,13 @@
@@ -39,10 +39,10 @@ index bdde74c313..3fb965daa7 100644
 +  readonly brandLogo?: {readonly src: string; readonly alt?: string};
  }
 diff --git a/ui/src/frontend/index.ts b/ui/src/frontend/index.ts
-index e6fb11051d..2ce43620a3 100644
+index 83ec1050..dcaa5974 100644
 --- a/ui/src/frontend/index.ts
 +++ b/ui/src/frontend/index.ts
-@@ -361,7 +361,11 @@ function onCssLoaded(app: AppImpl) {
+@@ -358,7 +358,11 @@ function onCssLoaded(app: AppImpl) {
    document.body.innerHTML = '';
  
    const pages = app.pages;
@@ -56,7 +56,7 @@ index e6fb11051d..2ce43620a3 100644
    router.onRouteChanged = routeChange;
  
 diff --git a/ui/src/frontend/views/sidebar.ts b/ui/src/frontend/views/sidebar.ts
-index e6a7ba5fcd..52df861b34 100644
+index e6a7ba5f..52df861b 100644
 --- a/ui/src/frontend/views/sidebar.ts
 +++ b/ui/src/frontend/views/sidebar.ts
 @@ -82,7 +82,7 @@ export class Sidebar implements m.ClassComponent<SidebarAttrs> {
