@@ -8,7 +8,7 @@ Subject: nopr: simplify the empty-state omnibox hint
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/ui/src/frontend/omnibox.ts b/ui/src/frontend/omnibox.ts
-index e1db2d5a66..53d6bd9c65 100644
+index 4d766d4d..1f5302dc 100644
 --- a/ui/src/frontend/omnibox.ts
 +++ b/ui/src/frontend/omnibox.ts
 @@ -259,7 +259,10 @@ export class Omnibox implements m.ClassComponent<OmniboxAttrs> {

@@ -11,7 +11,7 @@ keyboard panning.
  1 file changed, 10 insertions(+), 2 deletions(-)
 
 diff --git a/ui/src/components/tracks/buffered_bounds.ts b/ui/src/components/tracks/buffered_bounds.ts
-index 49813406b2..6e0642edd4 100644
+index 49813406..6e0642ed 100644
 --- a/ui/src/components/tracks/buffered_bounds.ts
 +++ b/ui/src/components/tracks/buffered_bounds.ts
 @@ -27,6 +27,9 @@ import type {TimeSpan} from '../../base/time';

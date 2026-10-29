@@ -8,7 +8,7 @@ Subject: nopr: brand the loading page for deployment
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/ui/src/assets/index.html b/ui/src/assets/index.html
-index 0392e49475..23f5aadd49 100644
+index 0392e494..23f5aadd 100644
 --- a/ui/src/assets/index.html
 +++ b/ui/src/assets/index.html
 @@ -2,7 +2,7 @@

@@ -1,4 +1,4 @@
 [perfetto]
 url = "https://github.com/google/perfetto.git"
-pin = "fff30e83b5af315d311a3f18626d70b458631fc5"
+pin = "f5cb5074e59208ec89c65aeeed53cc9cf6204cd5"
 fetch_depth = 300
