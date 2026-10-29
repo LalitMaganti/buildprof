@@ -13,6 +13,14 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   with the GitHub CLI and other URLs with `curl`, then served like a local
   recording. The GitHub Action's job summary now prints this command.
 
+### Fixed
+
+- `--compiler-traces` now records Clang phases when the build runs Clang by
+  path, as GN and many CMake toolchains do. It previously only saw Clang
+  invoked by name through `PATH`. A compile's own `-ftime-trace` now keeps its
+  trace where it asked for it, and ccache hits are no longer turned into
+  misses for Clang.
+
 ## [0.2.8] - 2026-10-17
 
 ### Fixed

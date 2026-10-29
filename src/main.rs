@@ -129,6 +129,7 @@ fn record(
         return ExitCode::FAILURE;
     }
     blind_spots.report();
+    compilers.report();
     report::gap();
     match handoff {
         Some(handoff) => {

@@ -132,10 +132,10 @@ screenshots below show a recording of a single `clang++ -O2` compilation.
 You can also replay just an expensive compilation or link rather than the
 whole build. Run its command from the recorded working directory, keeping
 its inputs and flags, with `buildprof --compiler-traces --` in front. The
-command really runs again and may overwrite its outputs. For Clang, invoke
-`clang` or `clang++` through `PATH`; LLD tracing requires an explicit linker
-selection such as `-fuse-ld=lld` on that Clang command. A direct `ld.lld`
-invocation is not wrapped. If you rerun the build system instead, make sure
+command really runs again and may overwrite its outputs. LLD tracing
+requires invoking `clang` or `clang++` through `PATH` with an explicit
+linker selection such as `-fuse-ld=lld`. A direct `ld.lld` invocation is
+not wrapped. If you rerun the build system instead, make sure
 it actually rebuilds the command you want to inspect.
 
 For example, suppose the recorded working directory is `/work/my-project`
@@ -158,7 +158,7 @@ buildprof -o link-detail.buildprof --compiler-traces -- \
 These illustrate the command shape: substitute your recorded directory,
 inputs, and full argument list, including libraries and any LTO flags. Keep
 response files referenced by `@file` available too. Both `clang` and `clang++`
-must be on `PATH` for Buildprof to install its Clang wrappers.
+must be on `PATH` for Buildprof to install its LLD wrappers.
 
 See [compiler support and limitations](usage.md#compiler-details) for
 supported compilers and the effects on compiler caches.
