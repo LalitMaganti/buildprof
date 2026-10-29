@@ -3,20 +3,21 @@
 
 //! Best-effort compiler-internal trace capture.
 //!
-//! Compiler flags are added by private wrappers. This is opt-in and may change
-//! compiler cache keys; requesting the detail trace takes precedence over
-//! preserving cache hits.
+//! Clang is asked for `-ftime-trace` through `CCC_OVERRIDE_OPTIONS`, which its
+//! driver reads however it was launched. Rust and LLD flags are added by
+//! private wrappers. This is opt-in and may change compiler cache keys;
+//! requesting the detail trace takes precedence over preserving cache hits.
 
 use crate::perfetto::Writer;
 use analyzeme::{EventPayload, ProfilingData, Timestamp};
 use serde::Deserialize;
 use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::ffi::{CString, OsStr, OsString};
 use std::fs::{self, File};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{self, BufReader, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::symlink;
 use std::os::unix::process::CommandExt;
@@ -26,8 +27,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const PROFILE_DIR_ENV: &str = "BUILDPROF_COMPILER_PROFILE_DIR";
 const REAL_RUST_WRAPPER_ENV: &str = "BUILDPROF_REAL_RUSTC_WRAPPER";
-const REAL_CLANG_ENV: &str = "BUILDPROF_REAL_CLANG";
-const REAL_CLANGXX_ENV: &str = "BUILDPROF_REAL_CLANGXX";
+const CLANG_OVERRIDE_ENV: &str = "CCC_OVERRIDE_OPTIONS";
 const RUST_WRAPPER_KIND: &str = "buildprof-rustc-wrapper";
 const CLANG_WRAPPER_KIND: &str = "clang";
 const CLANGXX_WRAPPER_KIND: &str = "clang++";
@@ -35,7 +35,11 @@ const RUST_BACKEND: &str = "Rust";
 const CLANG_BACKEND: &str = "Clang";
 const LLD_BACKEND: &str = "LLD";
 const PROFILE_DIRECTORY_PREFIX: &str = "buildprof-compilers";
-const CLANG_TRACE_PREFIX: &str = "clang";
+const CLANG_TRACE_DIRECTORY_NAME: &str = "clang";
+// Clang reads at most this much before the first event's pid.
+const CLANG_TRACE_PID_WINDOW: u64 = 4096;
+// Allows for the recorder's and the compiler's clocks disagreeing slightly.
+const CLANG_TRACE_START_SLACK_NS: u64 = 1_000_000_000;
 const LLD_TRACE_PREFIX: &str = "lld";
 const CLANG_TRACE_EXTENSION: &str = "json";
 const RUST_PROFILE_EXTENSION: &str = "mm_profdata";
@@ -51,9 +55,13 @@ const WRAPPER_DIRECTORY_NAME: &str = "bin";
 const MINIMUM_COMPILER_EVENT_NS: u64 = 1;
 const NANOS_PER_MICROSECOND: f64 = 1_000.0;
 const WRAPPER_FAILURE_EXIT_CODE: u8 = 126;
+const COMMAND_NOT_FOUND_EXIT_CODE: u8 = 127;
 
 pub struct Capture {
     directory: Option<PathBuf>,
+    clang_directory: Option<PathBuf>,
+    /// Traces seen but not yet claimed, so each is read once, not on every exit.
+    clang_owners: HashMap<PathBuf, (ClangTraceStamp, Option<i32>)>,
     child_environment: Vec<(CString, CString)>,
     origin: SystemTime,
     declared_tracks: HashSet<(i32, u32, &'static str)>,
@@ -63,6 +71,8 @@ impl Capture {
     pub fn new(enabled: bool) -> Self {
         let mut capture = Self {
             directory: None,
+            clang_directory: None,
+            clang_owners: HashMap::new(),
             child_environment: Vec::new(),
             origin: UNIX_EPOCH,
             declared_tracks: HashSet::new(),
@@ -91,17 +101,7 @@ impl Capture {
             return;
         };
 
-        let clang = directory.join(format!(
-            "{CLANG_TRACE_PREFIX}-{pid}.{CLANG_TRACE_EXTENSION}"
-        ));
-        if clang.is_file() {
-            if let Err(error) =
-                self.import_time_trace(pid, process_start_ns, CLANG_BACKEND, &clang, writer)
-            {
-                error!("could not import {}: {error}", clang.display());
-            }
-            let _ = fs::remove_file(clang);
-        }
+        self.import_clang_traces(pid, process_start_ns, writer);
 
         let lld = directory.join(format!("{LLD_TRACE_PREFIX}-{pid}.{CLANG_TRACE_EXTENSION}"));
         if lld.is_file() {
@@ -142,8 +142,24 @@ impl Capture {
         self.push_env(PROFILE_DIR_ENV, directory.as_os_str())?;
 
         self.prepare_rust()?;
-        self.prepare_clang()?;
+        self.prepare_clang_traces()?;
+        self.prepare_lld()?;
         Ok(())
+    }
+
+    /// Reports traces no exited process claimed. Clang names a trace after the
+    /// object it compiles, so two concurrent compiles of `foo.o` in different
+    /// directories write the same file and one trace is lost.
+    pub fn report(&self) {
+        let Some(directory) = &self.clang_directory else {
+            return;
+        };
+        let unclaimed = fs::read_dir(directory).map_or(0, |entries| entries.count());
+        if unclaimed > 0 {
+            hint!(
+                "{unclaimed} Clang time traces could not be matched to a compiler process; concurrent compiles of objects with the same file name overwrite each other's trace"
+            );
+        }
     }
 
     fn prepare_rust(&mut self) -> io::Result<()> {
@@ -155,13 +171,51 @@ impl Capture {
         self.push_env("RUSTC_WRAPPER", wrapper.as_os_str())
     }
 
-    fn prepare_clang(&mut self) -> io::Result<()> {
-        let Some(clang) = find_on_path("clang") else {
+    /// Every Clang driver the build runs, by name or by path, writes its trace
+    /// into one directory, named after its output. The trace records the pid
+    /// that wrote it, which is how it is matched to a process on exit.
+    fn prepare_clang_traces(&mut self) -> io::Result<()> {
+        let directory = self
+            .directory
+            .as_ref()
+            .expect("prepared directory")
+            .join(CLANG_TRACE_DIRECTORY_NAME);
+        // The override is split on whitespace and has no quoting.
+        if directory
+            .as_os_str()
+            .as_bytes()
+            .iter()
+            .any(u8::is_ascii_whitespace)
+        {
+            error!(
+                "Clang tracing unavailable: {} contains whitespace",
+                directory.display()
+            );
             return Ok(());
-        };
-        let Some(clangxx) = find_on_path("clang++") else {
+        }
+        fs::create_dir(&directory)?;
+        // Prepended so a `-ftime-trace` the build passes itself still wins, and
+        // with no trailing slash so a missing directory cannot fail a compile.
+        // `#` silences the driver's echo of our edit but not of the user's own.
+        let mut overrides = OsString::new();
+        if let Some(existing) = env::var_os(CLANG_OVERRIDE_ENV) {
+            overrides.push(existing);
+            overrides.push(" ");
+        }
+        overrides.push("# ^-ftime-trace=");
+        overrides.push(&directory);
+        self.push_env(CLANG_OVERRIDE_ENV, &overrides)?;
+        self.clang_directory = Some(directory);
+        Ok(())
+    }
+
+    /// LLD has no environment equivalent of `--time-trace`, and Clang does not
+    /// forward `-ftime-trace` to it, so explicit LLD links still need a wrapper.
+    /// It is only installed when the build could find Clang by name anyway.
+    fn prepare_lld(&mut self) -> io::Result<()> {
+        if find_on_path("clang").is_none() || find_on_path("clang++").is_none() {
             return Ok(());
-        };
+        }
 
         let shim_directory = self
             .wrapper_path(CLANG_WRAPPER_KIND)
@@ -172,8 +226,6 @@ impl Capture {
         symlink(&executable, shim_directory.join(CLANG_WRAPPER_KIND))?;
         symlink(&executable, shim_directory.join(CLANGXX_WRAPPER_KIND))?;
 
-        self.push_env(REAL_CLANG_ENV, clang.as_os_str())?;
-        self.push_env(REAL_CLANGXX_ENV, clangxx.as_os_str())?;
         let old_path = env::var_os("PATH").unwrap_or_default();
         let mut path = shim_directory.into_os_string();
         path.push(":");
@@ -199,6 +251,45 @@ impl Capture {
         })?;
         self.child_environment.push((name, value));
         Ok(())
+    }
+
+    fn import_clang_traces(&mut self, pid: i32, process_start_ns: u64, writer: &mut Writer) {
+        let Some(directory) = &self.clang_directory else {
+            return;
+        };
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        let mut unclaimed = HashMap::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            let stamp = (metadata.len(), metadata.modified().ok());
+            let owner = match self.clang_owners.get(&path) {
+                Some((known, owner)) if *known == stamp => *owner,
+                _ => time_trace_pid(&path),
+            };
+            // A trace from before this process started belongs to an earlier
+            // process that had the same pid.
+            let current = || {
+                time_trace_start_ns(&path, self.origin).is_none_or(|start| {
+                    start.saturating_add(CLANG_TRACE_START_SLACK_NS) >= process_start_ns
+                })
+            };
+            if owner != Some(pid) || !current() {
+                unclaimed.insert(path, (stamp, owner));
+                continue;
+            }
+            if let Err(error) =
+                self.import_time_trace(pid, process_start_ns, CLANG_BACKEND, &path, writer)
+            {
+                error!("could not import {}: {error}", path.display());
+            }
+            let _ = fs::remove_file(path);
+        }
+        self.clang_owners = unclaimed;
     }
 
     fn import_time_trace(
@@ -279,6 +370,37 @@ impl Capture {
             detail,
         )
     }
+}
+
+type ClangTraceStamp = (u64, Option<SystemTime>);
+
+/// The pid of the process that wrote a Clang time trace. Clang writes
+/// `{"traceEvents":[{"pid":N,` first, so only the start is read.
+fn time_trace_pid(path: &Path) -> Option<i32> {
+    let mut head = Vec::new();
+    File::open(path)
+        .ok()?
+        .take(CLANG_TRACE_PID_WINDOW)
+        .read_to_end(&mut head)
+        .ok()?;
+    parse_time_trace_pid(&head)
+}
+
+fn parse_time_trace_pid(head: &[u8]) -> Option<i32> {
+    const KEY: &[u8] = b"\"pid\":";
+    let start = head.windows(KEY.len()).position(|window| window == KEY)? + KEY.len();
+    let digits = head[start..]
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    // A number cut off by the window could read as another pid.
+    if start + digits == head.len() {
+        return None;
+    }
+    std::str::from_utf8(&head[start..start + digits])
+        .ok()?
+        .parse()
+        .ok()
 }
 
 #[derive(Deserialize)]
@@ -541,22 +663,18 @@ pub fn run_wrapper() -> Option<ExitCode> {
             command
         }
         CLANG_WRAPPER_KIND | CLANGXX_WRAPPER_KIND => {
-            let variable = if kind == CLANG_WRAPPER_KIND {
-                REAL_CLANG_ENV
-            } else {
-                REAL_CLANGXX_ENV
+            // Run whatever the build would have found without the wrapper, which
+            // may be a toolchain the build put on `PATH` after recording began.
+            let path = path_without_wrappers(&profile_dir).unwrap_or_default();
+            let Some(clang) = find_in(&path, kind) else {
+                error!("{kind}: command not found");
+                return Some(ExitCode::from(COMMAND_NOT_FOUND_EXIT_CODE));
             };
-            let mut command = Command::new(env::var_os(variable)?);
+            let mut command = Command::new(clang);
             let arguments: Vec<_> = arguments.collect();
             let trace_lld =
                 clang_invocation_links(&arguments) && clang_invocation_uses_lld(&arguments);
             command.args(&arguments);
-            let output = Path::new(&profile_dir).join(format!(
-                "{CLANG_TRACE_PREFIX}-{}.{}",
-                std::process::id(),
-                CLANG_TRACE_EXTENSION
-            ));
-            command.arg(format!("-ftime-trace={}", output.display()));
             if trace_lld {
                 let output = Path::new(&profile_dir).join(format!(
                     "{LLD_TRACE_PREFIX}-{}.{}",
@@ -565,7 +683,7 @@ pub fn run_wrapper() -> Option<ExitCode> {
                 ));
                 command.arg(format!("-Wl,--time-trace={}", output.display()));
             }
-            hide_wrappers(&profile_dir, &mut command);
+            command.env("PATH", path);
             command
         }
         _ => return None,
@@ -575,24 +693,24 @@ pub fn run_wrapper() -> Option<ExitCode> {
     Some(ExitCode::from(WRAPPER_FAILURE_EXIT_CODE))
 }
 
-/// Takes the wrapper directory back out of `PATH` before the real compiler
-/// runs. The directory is there to intercept what the build launches, not what
+/// `PATH` with the wrapper directory taken back out, for the real compiler.
+/// The directory is there to intercept what the build launches, not what
 /// the compiler launches, and a compiler launcher such as ccache resolves its
 /// own name through `PATH`: leaving the directory in place lets it find this
 /// wrapper again, which sends it straight back to the launcher, forever.
-fn hide_wrappers(profile_dir: &OsStr, command: &mut Command) {
-    let Some(path) = env::var_os("PATH") else {
-        return;
-    };
+fn path_without_wrappers(profile_dir: &OsStr) -> Option<OsString> {
+    let path = env::var_os("PATH")?;
     let wrappers = Path::new(profile_dir).join(WRAPPER_DIRECTORY_NAME);
     let kept = env::split_paths(&path).filter(|directory| *directory != wrappers);
-    if let Ok(path) = env::join_paths(kept) {
-        command.env("PATH", path);
-    }
+    env::join_paths(kept).ok()
 }
 
 fn find_on_path(program: &str) -> Option<PathBuf> {
-    env::split_paths(&env::var_os("PATH")?)
+    find_in(&env::var_os("PATH")?, program)
+}
+
+fn find_in(path: &OsStr, program: &str) -> Option<PathBuf> {
+    env::split_paths(path)
         .map(|directory| directory.join(program))
         .find(|candidate| candidate.is_file())
 }
@@ -680,6 +798,16 @@ mod tests {
         assert!(!rust_version_is_nightly(
             b"rustc 1.99.0-beta.3 (abcdef123 2026-08-10)\n"
         ));
+    }
+
+    #[test]
+    fn reads_the_pid_that_wrote_a_clang_trace() {
+        assert_eq!(
+            parse_time_trace_pid(br#"{"traceEvents":[{"pid":3870173,"tid":3870173,"ts":6"#),
+            Some(3_870_173)
+        );
+        assert_eq!(parse_time_trace_pid(br#"{"traceEvents":[{"pid":38"#), None);
+        assert_eq!(parse_time_trace_pid(br#"{"traceEvents":["#), None);
     }
 
     #[test]

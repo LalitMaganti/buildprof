@@ -180,3 +180,98 @@ def test_ccache_wrappers_on_path_do_not_loop(buildprof: Path, tmp_path: Path):
     assert count_compiler_events(trace, "Clang") > 0, (
         "compiling through ccache recorded no Clang events"
     )
+
+
+def _clang_project(root: Path) -> Path:
+    project = root / "project"
+    (project / "a").mkdir(parents=True)
+    (project / "b").mkdir()
+    (project / "a/hello.c").write_text("int main(void) { return 0; }\n")
+    (project / "b/hello.c").write_text("int helper(void) { return 1; }\n")
+    return project
+
+
+def _clang_processes(trace: Path) -> list:
+    return [
+        process
+        for process in load_perfetto(trace).values()
+        if any(segment.name in ("clang", "clang++") for segment in process.segments)
+    ]
+
+
+def test_clang_invoked_by_relative_path_records_compiler_events(
+    buildprof: Path, tmp_path: Path
+):
+    """GN and many CMake toolchains run Clang by path, which no wrapper on
+    `PATH` can intercept."""
+    _require("clang")
+    project = _clang_project(tmp_path)
+    toolchain = project / "toolchain/bin"
+    toolchain.mkdir(parents=True)
+    (toolchain / "clang").symlink_to(shutil.which("clang"))
+
+    trace = _record(
+        buildprof,
+        project,
+        ["toolchain/bin/clang", "-c", "a/hello.c", "-o", "a/hello.o"],
+        {},
+    )
+
+    assert (project / "a/hello.o").is_file(), "the build produced nothing"
+    assert count_compiler_events(trace, "Clang") > 0, (
+        "Clang invoked by a relative path recorded no Clang events"
+    )
+    assert not (project / "a/hello.json").exists()
+
+
+def test_clang_the_build_puts_on_path_is_traced(buildprof: Path, tmp_path: Path):
+    """A build that puts its own toolchain ahead of everything on `PATH`,
+    including any wrapper, runs that Clang and it is still traced."""
+    _require("clang")
+    project = _clang_project(tmp_path)
+    toolchain = project / "toolchain"
+    toolchain.mkdir()
+    marker = tmp_path / "pinned-clang-ran"
+    pinned = toolchain / "clang"
+    pinned.write_text(
+        f'#!/bin/sh\ntouch "{marker}"\nexec "{shutil.which("clang")}" "$@"\n'
+    )
+    pinned.chmod(0o755)
+
+    trace = _record(
+        buildprof,
+        project,
+        ["sh", "-c", f'PATH="{toolchain}:$PATH" exec clang -c a/hello.c -o a/hello.o'],
+        {},
+    )
+
+    assert marker.exists(), "the build's own clang was replaced"
+    assert count_compiler_events(trace, "Clang") > 0
+
+
+def test_clang_traces_requested_by_the_build_are_left_alone(
+    buildprof: Path, tmp_path: Path
+):
+    """A build's own `-ftime-trace` and `CCC_OVERRIDE_OPTIONS` keep working."""
+    _require("clang")
+    project = _clang_project(tmp_path)
+    (project / "a/hello.c").write_text(
+        "#ifndef FROM_OVERRIDE\n#error override lost\n#endif\n"
+        "int main(void) { return 0; }\n"
+    )
+
+    trace = _record(
+        buildprof,
+        project,
+        [
+            "sh",
+            "-c",
+            "clang -ftime-trace -c a/hello.c -o a/hello.o"
+            " && clang -c b/hello.c -o b/hello.o",
+        ],
+        {"CCC_OVERRIDE_OPTIONS": "# +-DFROM_OVERRIDE"},
+    )
+
+    assert (project / "a/hello.json").is_file(), "the build's own trace moved"
+    assert count_compiler_events(trace, "Clang") > 0, "b/hello.c was not traced"
+    assert len(_clang_processes(trace)) == 2

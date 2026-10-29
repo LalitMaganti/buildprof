@@ -115,10 +115,18 @@ Compiler tracing can be combined with process-only recording:
 buildprof --no-file-events --compiler-traces -- ninja -C build
 ```
 
-A build which invokes Clang through an absolute path currently bypasses
-compiler tracing. Buildprof will still record the compiler process, but its
-Clang and LLD internal phases will be absent.
+Clang is traced however the build invokes it, by name or by path, through
+the `CCC_OVERRIDE_OPTIONS` variable its driver reads. Buildprof adds to any
+value already set there. A compile that passes its own `-ftime-trace` keeps
+its trace where it asked for it, and Buildprof records no phases for it.
+LLD phases are recorded only when Clang is invoked by name through `PATH`.
 
-Compiler tracing can also change compiler cache keys or turn cache hits into
-misses. Existing Rust compiler wrappers remain in the invocation chain, but
-cache preservation is not guaranteed in this mode.
+Clang names each trace after the object it compiles. When two compiles of
+objects with the same file name finish at the same moment, one trace can be
+lost, and Buildprof reports how many after the build.
+
+Rust tracing can change compiler cache keys or turn cache hits into misses.
+Existing Rust compiler wrappers remain in the invocation chain, but cache
+preservation is not guaranteed in this mode. Clang command lines are left
+unchanged, so a compile served from ccache stays a hit and has
+no phases.
