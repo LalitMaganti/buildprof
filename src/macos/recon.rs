@@ -9,7 +9,6 @@
 
 use super::event::{Event, Message};
 use super::kdebug;
-use super::tracker::Clock;
 use std::collections::{HashMap, HashSet};
 use std::io;
 
@@ -19,40 +18,33 @@ const STRING_EXEC: u32 = 0x0701_0008;
 const LOST_EVENTS: u32 = 0x0702_0008;
 const PROC_EXIT: u32 = 0x0401_0004;
 
-/// How long an exit is held before it is believed, in trace time. The kernel
-/// also reports an exit when a process starts a new program. Anything further
-/// from the pid cancels the exit.
-const EXIT_HOLD_NS: u64 = 10_000_000;
-
-struct HeldExit {
-    pid: i32,
-    mach_time: u64,
-    stat: i32,
-    believe_after: u64,
-}
-
 pub struct Collector {
     root: i32,
-    clock: Clock,
     processes: HashSet<i32>,
     threads: HashMap<u64, i32>,
     /// Executions seen but not yet reported. The kernel names the new program
     /// in a second event.
     starting: HashMap<i32, u64>,
-    held_exits: Vec<HeldExit>,
+    /// The first thread of each new task that a program is starting in, and the
+    /// thread that asked. execvp tries each PATH directory in turn, and the end
+    /// of a failed try can be reported after the next has begun.
+    new_tasks: HashMap<u64, u64>,
+    /// Threads whose program another program replaced. The kernel reports the
+    /// replaced program's end as an exit, on that thread.
+    replaced: HashSet<u64>,
     /// Events the kernel dropped because the buffer filled.
     pub dropped: u64,
 }
 
 impl Collector {
-    pub fn new(root: i32, clock: Clock) -> Self {
+    pub fn new(root: i32) -> Self {
         Self {
             root,
-            clock,
             processes: HashSet::from([root]),
             threads: HashMap::new(),
             starting: HashMap::new(),
-            held_exits: Vec::new(),
+            new_tasks: HashMap::new(),
+            replaced: HashSet::new(),
             dropped: 0,
         }
     }
@@ -76,11 +68,15 @@ impl Collector {
                 let (child_thread, pid) = (args[0], args[1] as i32);
                 let parent = self.threads.get(&thread).copied();
                 self.threads.insert(child_thread, pid);
+                // Starting a program creates a new task, whose first thread
+                // the kernel flags.
+                if args[2] == 1 && parent == Some(pid) {
+                    self.new_tasks.insert(child_thread, thread);
+                }
                 if let Some(parent) = parent
                     && parent != pid
                 {
                     if self.processes.contains(&parent) {
-                        self.cancel_exit(pid);
                         self.processes.insert(pid);
                         out(Message {
                             mach_time: event.timestamp,
@@ -108,16 +104,17 @@ impl Collector {
         let Some(&pid) = self.threads.get(&thread) else {
             return Ok(());
         };
-        // Anything further from a pid means its exit was a new program
-        // starting. The process has not ended.
-        self.cancel_exit(pid);
-        self.believe_exits(event.timestamp, out)?;
         if !self.processes.contains(&pid) {
             return Ok(());
         }
 
         match code {
             DATA_EXEC => {
+                // The new program runs on the new task's thread. A start that
+                // failed has no such exec, and the old program carries on.
+                if let Some(asker) = self.new_tasks.remove(&thread) {
+                    self.replaced.insert(asker);
+                }
                 self.starting.insert(pid, event.timestamp);
             }
             // The program's name follows the execution that started it.
@@ -133,23 +130,27 @@ impl Collector {
                     })?;
                 }
             }
+            // The old program's end, not the process's.
+            PROC_EXIT if event.is_end() && self.replaced.remove(&thread) => {}
+            // A start that failed, as when execvp tries each PATH directory.
+            // The kernel discards the new task, and reports that as an exit on
+            // its thread. The process carries on.
+            PROC_EXIT if event.is_end() && self.new_tasks.remove(&thread).is_some() => {}
             PROC_EXIT if event.is_end() => {
-                self.held_exits.push(HeldExit {
-                    pid,
+                if pid != self.root {
+                    self.processes.remove(&pid);
+                }
+                self.starting.remove(&pid);
+                out(Message {
                     mach_time: event.timestamp,
-                    stat: args[1] as i32,
-                    believe_after: event.timestamp + self.ticks(EXIT_HOLD_NS),
-                });
+                    pid,
+                    ppid: 0,
+                    event: Event::Exit {
+                        stat: args[1] as i32,
+                    },
+                })?;
             }
             _ => {}
-        }
-        Ok(())
-    }
-
-    /// Emits everything still held back, at the end of a recording.
-    pub fn flush(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
-        for exit in std::mem::take(&mut self.held_exits) {
-            self.emit_exit(exit, out)?;
         }
         Ok(())
     }
@@ -157,47 +158,6 @@ impl Collector {
     /// Pids the build started that have not been seen to exit.
     pub fn live_pids(&self) -> impl Iterator<Item = i32> + '_ {
         self.processes.iter().copied()
-    }
-
-    fn ticks(&self, nanoseconds: u64) -> u64 {
-        (nanoseconds as f64 * self.clock.ticks_per_ns()) as u64
-    }
-
-    fn cancel_exit(&mut self, pid: i32) {
-        self.held_exits.retain(|exit| exit.pid != pid);
-    }
-
-    fn believe_exits(
-        &mut self,
-        now: u64,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
-    ) -> io::Result<()> {
-        while let Some(index) = self
-            .held_exits
-            .iter()
-            .position(|exit| exit.believe_after <= now)
-        {
-            let exit = self.held_exits.remove(index);
-            self.emit_exit(exit, out)?;
-        }
-        Ok(())
-    }
-
-    fn emit_exit(
-        &mut self,
-        exit: HeldExit,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
-    ) -> io::Result<()> {
-        if exit.pid != self.root {
-            self.processes.remove(&exit.pid);
-        }
-        self.starting.remove(&exit.pid);
-        out(Message {
-            mach_time: exit.mach_time,
-            pid: exit.pid,
-            ppid: 0,
-            event: Event::Exit { stat: exit.stat },
-        })
     }
 }
 
@@ -265,23 +225,12 @@ mod tests {
                     })
                     .expect("observe");
             }
-            collector
-                .flush(&mut |message| {
-                    out.push(message);
-                    Ok(())
-                })
-                .expect("flush");
             out
         }
     }
 
     fn collector() -> Collector {
-        let clock = Clock {
-            origin: 0,
-            numer: 1,
-            denom: 1,
-        };
-        let mut collector = Collector::new(100, clock);
+        let mut collector = Collector::new(100);
         collector.seed_threads([(10, 100)]);
         collector
     }
@@ -364,32 +313,68 @@ mod tests {
     }
 
     #[test]
-    fn an_exit_is_only_believed_when_nothing_follows_it() {
-        // The kernel reports an exit when an image is replaced, too.
+    fn the_end_of_a_replaced_program_is_not_an_exit() {
+        // As traced on macOS 26: starting a program creates thread 11 for the
+        // new task, and the old program ends on thread 10.
         let mut stream = Stream::new();
         stream
+            .push(10, NEWTHREAD, [11, 100, 1, 0])
+            .exec(11, 100, "cc")
+            .push(10, PROC_EXIT | 1, [100, 0, 0, 0])
             .push(10, PROC_EXIT | 2, [100, 0, 0, 0])
-            .exec(10, 100, "still-here");
+            .push(11, PROC_EXIT | 1, [100, 256, 0, 0])
+            .push(11, PROC_EXIT | 2, [100, 256, 0, 0]);
         let messages = stream.collect(&mut collector());
-        assert!(
-            !messages
-                .iter()
-                .any(|message| matches!(message.event, Event::Exit { .. })),
-            "{messages:?}"
-        );
-
-        // With nothing after it, the exit stands, with its wait status.
-        let mut stream = Stream::new();
-        stream.push(10, PROC_EXIT | 2, [100, 256, 0, 0]);
-        let messages = stream.collect(&mut collector());
+        let exits: Vec<_> = messages
+            .iter()
+            .filter(|message| matches!(message.event, Event::Exit { .. }))
+            .collect();
         assert_eq!(
-            messages,
-            [Message {
-                mach_time: 1_010,
+            exits,
+            [&Message {
+                mach_time: 1_070,
                 pid: 100,
                 ppid: 0,
                 event: Event::Exit { stat: 256 },
             }]
+        );
+    }
+
+    #[test]
+    fn a_failed_start_on_the_way_to_a_program_is_not_an_exit() {
+        // As traced on macOS 26 when make runs a command through execvp: the
+        // first PATH directory fails, so the kernel discards new task 11 and
+        // reports an exit on its thread. That report can come after the next
+        // attempt has begun. The third attempt succeeds on thread 13.
+        let mut stream = Stream::new();
+        stream
+            .push(10, NEWTHREAD, [11, 100, 1, 0])
+            .push(10, NEWTHREAD, [12, 100, 1, 0])
+            .push(11, PROC_EXIT | 2, [100, 0, 0, 0])
+            .push(12, PROC_EXIT | 2, [100, 0, 0, 0])
+            .push(10, NEWTHREAD, [13, 100, 1, 0])
+            .exec(13, 100, "pwd")
+            .push(10, PROC_EXIT | 2, [100, 0, 0, 0])
+            .push(13, PROC_EXIT | 2, [100, 256, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        let events: Vec<_> = messages.iter().map(|message| &message.event).collect();
+        assert!(matches!(events[0], Event::Exec { .. }), "{events:?}");
+        assert_eq!(events[1..], [&Event::Exit { stat: 256 }]);
+    }
+
+    #[test]
+    fn a_program_that_failed_to_start_leaves_its_process_running() {
+        // The new task was created, but the program never ran in it.
+        let mut stream = Stream::new();
+        stream
+            .push(10, NEWTHREAD, [11, 100, 1, 0])
+            .push(10, PROC_EXIT | 2, [100, 256, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.event == Event::Exit { stat: 256 }),
+            "{messages:?}"
         );
     }
 }

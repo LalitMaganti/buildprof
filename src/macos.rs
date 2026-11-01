@@ -264,7 +264,7 @@ pub fn record(
     // written at the end. The recorder therefore outlives an interrupted build.
     ignore_interrupts();
     let root_pid = build.id() as i32;
-    let mut collector = recon::Collector::new(root_pid, clock);
+    let mut collector = recon::Collector::new(root_pid);
     collector.seed_threads(threads);
 
     let mut sink = TraceSink { writer };
@@ -319,7 +319,6 @@ pub fn record(
         // a batch is ready.
         let _ = session.wait(READ_INTERVAL.as_millis() as u64);
     }
-    collector.flush(&mut |message| tracker.handle(message))?;
     if collector.dropped > 0 {
         let times = match collector.dropped {
             1 => "once".to_owned(),
