@@ -31,7 +31,7 @@ these builds.
 `--compiler-traces` adds what happens inside each compiler. This detail is
 missing when:
 
-- Clang is called by an absolute path
+- LLD runs from a Clang called by an absolute path (LLD phases only)
 - the compiler does not support it, as with stable Rust
 
 See [compiler details](usage.md#compiler-details) for more.
