@@ -143,7 +143,7 @@ impl Collector {
             root_command: None,
             inspect: Box::new(inspect),
             latest: 0,
-            argv_buffer: vec![0; 1 << 18],
+            argv_buffer: vec![0; kdebug::command_line_space()],
             queued: Vec::new(),
             dropped: 0,
             unnamed: 0,

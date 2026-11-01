@@ -15,6 +15,7 @@ use std::io;
 
 const CTL_KERN: i32 = 1;
 const KERN_KDEBUG: i32 = 24;
+const KERN_ARGMAX: i32 = 8;
 const KERN_PROCARGS2: i32 = 49;
 
 const KERN_KDENABLE: i32 = 3;
@@ -207,6 +208,23 @@ fn describe(error: io::Error) -> io::Error {
     }
 }
 
+/// How large a buffer `command_line` needs. The kernel cuts a command line
+/// that does not fit short, without saying so.
+pub fn command_line_space() -> usize {
+    let mut argmax: i32 = 0;
+    let mut length = size_of::<i32>();
+    let read = sysctl(
+        &mut [CTL_KERN, KERN_ARGMAX],
+        std::ptr::from_mut(&mut argmax).cast(),
+        &mut length,
+    );
+    // The kernel refuses a buffer much larger than this.
+    match read {
+        Ok(()) if argmax > 0 => argmax as usize,
+        _ => 1 << 18,
+    }
+}
+
 /// The command line of a running process, as `(executable, argv)`.
 ///
 /// This fails while a process is still setting up a new program after `exec`,
@@ -306,6 +324,31 @@ mod tests {
         assert_eq!(event.thread, 99);
         assert_eq!(event.code(), 0x0401_0004);
         assert!(event.is_end());
+    }
+
+    #[test]
+    fn reads_a_long_command_line_whole() {
+        let long = "x".repeat(600 * 1024);
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "sleep 5; :", "sh", &long, "last"])
+            .spawn()
+            .expect("spawn");
+        let mut buffer = vec![0_u8; command_line_space()];
+        // The shell may not have finished starting yet.
+        let mut read = command_line(child.id() as i32, &mut buffer);
+        for _ in 0..100 {
+            if read.as_ref().is_ok_and(|(_, argv)| argv.len() == 6) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            read = command_line(child.id() as i32, &mut buffer);
+        }
+        child.kill().expect("kill");
+        child.wait().expect("wait");
+        let (_, argv) = read.expect("argv");
+        assert_eq!(argv.len(), 6);
+        assert_eq!(argv[4].len(), long.len());
+        assert_eq!(argv[5], "last");
     }
 
     #[test]
