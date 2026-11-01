@@ -123,6 +123,9 @@ pub struct Collector {
     queued: Vec<Message>,
     /// Events the kernel dropped because the buffer filled.
     pub dropped: u64,
+    /// How many processes and programs have started. The recorder reads more
+    /// often while this grows.
+    pub started: u64,
     /// Processes whose command line was gone before it could be read. They are
     /// named after their program alone.
     pub unnamed: u64,
@@ -146,6 +149,7 @@ impl Collector {
             argv_buffer: vec![0; kdebug::command_line_space()],
             queued: Vec::new(),
             dropped: 0,
+            started: 0,
             unnamed: 0,
         }
     }
@@ -239,6 +243,7 @@ impl Collector {
                     && parent != pid
                 {
                     if self.processes.contains(&parent) {
+                        self.started += 1;
                         self.cancel_exit(pid);
                         self.processes.insert(pid);
                         out(Message {
@@ -274,6 +279,7 @@ impl Collector {
         match code {
             // The kernel reports the new program's file id as the third argument.
             DATA_EXEC => {
+                self.started += 1;
                 // The new program runs on the new task's thread. A start that
                 // failed has no such exec, and the old program carries on.
                 if let Some(asker) = self.new_tasks.remove(&thread) {

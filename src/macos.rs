@@ -41,10 +41,16 @@ mod tracker;
 /// million events a second. The buffer holds about a hundred times what the
 /// recorder collects in one read, so a stall in reading does not lose events.
 const BUFFER_EVENTS: usize = 512 * 1024;
-/// The longest wait for the kernel to fill a batch. A short wait means a
-/// process's command line is still readable when its exec is seen. A longer one
-/// costs less CPU.
-const READ_INTERVAL: Duration = Duration::from_millis(1);
+/// How soon to read again after a read that saw a process or program start.
+/// A command line can only be read while its process lives, and tools like pwd
+/// or mkdir live well under a millisecond. On a clean git build, reads 1ms apart
+/// lost 120 to 160 command lines, and reads 250us apart lost one. Below about
+/// 100us the scheduler stops honouring the recorder's time slot, and it falls
+/// behind.
+const FAST_READ_INTERVAL: Duration = Duration::from_micros(250);
+/// The longest gap between reads while nothing starts. The gap doubles after
+/// each quiet read, so long compiles and links wake the recorder rarely.
+const SLOW_READ_INTERVAL: Duration = Duration::from_millis(4);
 /// How often to look for the end of a build whose last exits were not seen.
 const LIVENESS_INTERVAL: Duration = Duration::from_millis(250);
 /// How long to keep reading after the build, to collect trailing events.
@@ -292,6 +298,8 @@ pub fn record(
     );
 
     keep_up(&clock);
+    let mut interval = FAST_READ_INTERVAL;
+    let mut started = 0;
     let mut root_status = None;
     let mut last_check = Instant::now();
     let mut ended: Option<Instant> = None;
@@ -325,9 +333,15 @@ pub fn record(
             }
         }
         // Pace the reads. A read costs about the same however much it returns,
-        // so reading nonstop wastes a core. The kernel ends the wait early when
-        // a batch is ready.
-        let _ = session.wait(READ_INTERVAL.as_millis() as u64);
+        // so reading nonstop wastes a core and power. Reads come quickly only
+        // while processes start, which is when command lines are at risk.
+        interval = if collector.started == started {
+            (interval * 2).min(SLOW_READ_INTERVAL)
+        } else {
+            FAST_READ_INTERVAL
+        };
+        started = collector.started;
+        std::thread::sleep(interval);
     }
     collector.flush(&mut |message| tracker.handle(message))?;
     match collector.unnamed {
@@ -469,9 +483,9 @@ fn executable_name(command: &OsString) -> String {
 fn keep_up(clock: &Clock) {
     let ticks = |interval: Duration| (interval.as_nanos() as f64 * clock.ticks_per_ns()) as u32;
     let mut policy = libc::thread_time_constraint_policy {
-        period: ticks(READ_INTERVAL),
-        computation: ticks(READ_INTERVAL / 2),
-        constraint: ticks(READ_INTERVAL),
+        period: ticks(FAST_READ_INTERVAL),
+        computation: ticks(FAST_READ_INTERVAL / 2),
+        constraint: ticks(FAST_READ_INTERVAL),
         preemptible: 1,
     };
     // SAFETY: `policy` is a filled-in struct of the flavor named.

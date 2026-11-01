@@ -25,7 +25,6 @@ const KERN_KDREMOVE: i32 = 7;
 const KERN_KDREADTR: i32 = 10;
 const KERN_KDTHRMAP: i32 = 12;
 const KERN_KDSET_TYPEFILTER: i32 = 22;
-const KERN_KDBUFWAIT: i32 = 23;
 const KDEBUG_ENABLE_TRACE: i32 = 1;
 const TYPEFILTER_BYTES: usize = (256 * 256) / 8;
 
@@ -132,13 +131,6 @@ impl Session {
         .map_err(describe)?;
         command(KERN_KDENABLE, Some(KDEBUG_ENABLE_TRACE)).map_err(describe)?;
         Ok(session)
-    }
-
-    /// Blocks until the kernel has a batch worth reading, or `timeout_ms`.
-    pub fn wait(&self, timeout_ms: u64) -> io::Result<bool> {
-        let mut length = timeout_ms as usize;
-        control(KERN_KDBUFWAIT, None, std::ptr::null_mut(), &mut length)?;
-        Ok(length != 0)
     }
 
     /// Threads that already existed when tracing started, as (thread, pid).
