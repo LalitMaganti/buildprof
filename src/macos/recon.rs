@@ -88,9 +88,11 @@ impl Collector {
                             ppid: 0,
                             event: Event::Fork { child: pid },
                         })?;
-                    } else if pid != self.root {
+                    } else if pid != self.root && parent != 0 {
                         // Another process now has this pid, so stop following
-                        // it.
+                        // it. The kernel itself (pid 0) also starts worker
+                        // threads in existing processes. Those are not new
+                        // processes.
                         self.processes.remove(&pid);
                     }
                 }
@@ -316,6 +318,40 @@ mod tests {
             Event::Exec { executable } if executable == "cc"
         ));
         assert_eq!(messages[1].pid, 200);
+    }
+
+    #[test]
+    fn a_worker_thread_the_kernel_starts_keeps_its_process() {
+        // GCD asks the kernel for worker threads. A kernel thread (pid 0)
+        // then creates the thread inside the process.
+        let mut collector = collector();
+        collector.seed_threads([(1, 0)]);
+        let mut stream = Stream::new();
+        stream
+            .push(10, NEWTHREAD, [11, 200, 0, 0])
+            .push(1, NEWTHREAD, [12, 200, 0, 0])
+            .push(12, NEWTHREAD, [13, 300, 0, 0]);
+        let messages = stream.collect(&mut collector);
+        assert!(messages.iter().any(
+            |message| message.pid == 200 && matches!(message.event, Event::Fork { child: 300 })
+        ));
+    }
+
+    #[test]
+    fn a_pid_another_process_reuses_is_no_longer_followed() {
+        let mut collector = collector();
+        collector.seed_threads([(99, 999)]);
+        let mut stream = Stream::new();
+        stream
+            .push(10, NEWTHREAD, [11, 200, 0, 0])
+            .push(99, NEWTHREAD, [12, 200, 0, 0])
+            .push(12, NEWTHREAD, [13, 300, 0, 0]);
+        let messages = stream.collect(&mut collector);
+        assert!(
+            !messages
+                .iter()
+                .any(|message| matches!(message.event, Event::Fork { child: 300 }))
+        );
     }
 
     #[test]
