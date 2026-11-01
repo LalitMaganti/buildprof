@@ -118,6 +118,9 @@ pub struct Collector {
     /// it.
     latest: u64,
     argv_buffer: Vec<u8>,
+    /// Messages that happened after a program whose command line is still
+    /// unread. They wait so that its execution reaches the tracker first.
+    queued: Vec<Message>,
     /// Events the kernel dropped because the buffer filled.
     pub dropped: u64,
     /// Processes whose command line was gone before it could be read. They are
@@ -141,6 +144,7 @@ impl Collector {
             inspect: Box::new(inspect),
             latest: 0,
             argv_buffer: vec![0; 1 << 18],
+            queued: Vec::new(),
             dropped: 0,
             unnamed: 0,
         }
@@ -161,6 +165,60 @@ impl Collector {
         &mut self,
         event: &kdebug::Event,
         out: &mut impl FnMut(Message) -> io::Result<()>,
+    ) -> io::Result<()> {
+        self.in_order(out, |collector, out| collector.interpret(event, out))
+    }
+
+    /// Follows up the command lines that were not ready yet.
+    pub fn tick(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
+        self.in_order(out, |collector, out| {
+            collector.retry_command_lines(out, false)?;
+            collector.believe_exits(out)
+        })
+    }
+
+    /// Emits everything still held back, at the end of a recording.
+    pub fn flush(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
+        self.in_order(out, Self::flush_held)
+    }
+
+    /// Runs `step`, and passes on its messages once nothing earlier can still
+    /// arrive. An execution is reported only when its command line has been
+    /// read. Until then, what happened after it waits. The tracker would
+    /// otherwise see a child the program started before the program itself,
+    /// and give the child the wrong build parent and name.
+    fn in_order(
+        &mut self,
+        out: &mut impl FnMut(Message) -> io::Result<()>,
+        step: impl FnOnce(&mut Self, &mut dyn FnMut(Message) -> io::Result<()>) -> io::Result<()>,
+    ) -> io::Result<()> {
+        let mut queued = std::mem::take(&mut self.queued);
+        let result = step(self, &mut |message| {
+            queued.push(message);
+            Ok(())
+        });
+        // Execs and exits that were held back carry earlier times.
+        queued.sort_by_key(|message| message.mach_time);
+        let ready = match self
+            .argv_retries
+            .iter()
+            .map(|pending| pending.mach_time)
+            .min()
+        {
+            Some(unread) => queued.partition_point(|message| message.mach_time < unread),
+            None => queued.len(),
+        };
+        self.queued = queued.split_off(ready);
+        for message in queued {
+            out(message)?;
+        }
+        result
+    }
+
+    fn interpret(
+        &mut self,
+        event: &kdebug::Event,
+        out: &mut dyn FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
         let code = event.code();
         let args = event.args;
@@ -255,14 +313,7 @@ impl Collector {
         Ok(())
     }
 
-    /// Follows up the command lines that were not ready yet.
-    pub fn tick(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
-        self.retry_command_lines(out, false)?;
-        self.believe_exits(out)
-    }
-
-    /// Emits everything still held back, at the end of a recording.
-    pub fn flush(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
+    fn flush_held(&mut self, out: &mut dyn FnMut(Message) -> io::Result<()>) -> io::Result<()> {
         // A process's execution has to reach the trace before its exit ends it.
         // The last reads therefore go first.
         self.retry_command_lines(out, true)?;
@@ -313,7 +364,7 @@ impl Collector {
         pid: i32,
         mach_time: u64,
         image: u64,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
+        out: &mut dyn FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
         // An earlier program whose command line is still unread can no longer
         // be read, because the process has started another one since. It is
@@ -352,7 +403,7 @@ impl Collector {
 
     fn retry_command_lines(
         &mut self,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
+        out: &mut dyn FnMut(Message) -> io::Result<()>,
         last_chance: bool,
     ) -> io::Result<()> {
         for pending in std::mem::take(&mut self.argv_retries) {
@@ -399,7 +450,7 @@ impl Collector {
     fn settle(
         &mut self,
         pending: PendingArgv,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
+        out: &mut dyn FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
         match pending.moved_on {
             Some((executable, argv)) if self.passed_on(pending.pid, &argv) => {
@@ -435,7 +486,7 @@ impl Collector {
         pid: i32,
         mach_time: u64,
         lost: bool,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
+        out: &mut dyn FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
         if lost {
             self.unnamed += 1;
@@ -451,7 +502,7 @@ impl Collector {
         mach_time: u64,
         executable: String,
         argv: Vec<String>,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
+        out: &mut dyn FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
         out(Message {
             mach_time,
@@ -465,7 +516,7 @@ impl Collector {
         self.held_exits.retain(|exit| exit.pid != pid);
     }
 
-    fn believe_exits(&mut self, out: &mut impl FnMut(Message) -> io::Result<()>) -> io::Result<()> {
+    fn believe_exits(&mut self, out: &mut dyn FnMut(Message) -> io::Result<()>) -> io::Result<()> {
         // An exit waits for its process's command line. The execution then
         // reaches the trace first, even if only named after its program.
         while let Some(index) = self.held_exits.iter().position(|exit| {
@@ -483,7 +534,7 @@ impl Collector {
     fn emit_exit(
         &mut self,
         exit: HeldExit,
-        out: &mut impl FnMut(Message) -> io::Result<()>,
+        out: &mut dyn FnMut(Message) -> io::Result<()>,
     ) -> io::Result<()> {
         if exit.pid != self.root {
             self.processes.remove(&exit.pid);
@@ -795,6 +846,54 @@ mod tests {
             [vec!["cc".to_owned(), "-c".into(), "a.c".into()]]
         );
         assert_eq!(collector.unnamed, 0);
+    }
+
+    #[test]
+    fn a_program_is_reported_before_what_it_did_while_unread() {
+        // sh's command line is not ready for the first three reads. Before it
+        // is read, sh starts a child, which exits.
+        let mut reads = 0;
+        let mut collector = collector();
+        collector.inspect = Box::new(move |_, _| {
+            reads += 1;
+            if reads <= 3 {
+                Err(io::Error::from_raw_os_error(libc::EINVAL))
+            } else {
+                running(&["sh", "-c", "cc"], 0)
+            }
+        });
+        let mut stream = Stream::new();
+        stream
+            .push(10, NEWTHREAD, [11, 200, 0, 0])
+            .push(11, DATA_EXEC, [200, 0, 0, 0])
+            .push(11, STRING_EXEC, program_name("sh"))
+            .push(11, NEWTHREAD, [12, 300, 0, 0])
+            .push(12, PROC_EXIT | 2, [300, 0, 0, 0])
+            .push(10, OTHER_EVENT, [0; 4]);
+        let mut messages = collect_ticking(&stream, &mut collector);
+        collector
+            .flush(&mut |message| {
+                messages.push(message);
+                Ok(())
+            })
+            .expect("flush");
+        let events: Vec<_> = messages
+            .iter()
+            .map(|message| match &message.event {
+                Event::Fork { child } => format!("{} fork {child}", message.pid),
+                Event::Exec { argv, .. } => format!("{} exec {}", message.pid, argv.join(" ")),
+                Event::Exit { .. } => format!("{} exit", message.pid),
+            })
+            .collect();
+        assert_eq!(
+            events,
+            [
+                "100 fork 200",
+                "200 exec sh -c cc",
+                "200 fork 300",
+                "300 exit"
+            ]
+        );
     }
 
     #[test]
