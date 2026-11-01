@@ -11,7 +11,6 @@ use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
-use std::time::{Duration, SystemTime};
 
 /// The raw exit status of a child that `posix_spawn` created but could not
 /// exec. `posix_spawnp` tries each `PATH` directory in turn, so one spawn can
@@ -44,8 +43,6 @@ pub struct Clock {
     pub origin: u64,
     pub numer: u32,
     pub denom: u32,
-    /// When the origin was, on the wall clock.
-    pub origin_wall: SystemTime,
 }
 
 // libc deprecates these in favour of the mach2 crate. Two calls do not justify
@@ -59,7 +56,6 @@ impl Clock {
             origin: mach_now(),
             numer: timebase.numer.max(1),
             denom: timebase.denom.max(1),
-            origin_wall: SystemTime::now(),
         }
     }
 
@@ -75,11 +71,6 @@ impl Clock {
     /// Trace time units per nanosecond.
     pub fn ticks_per_ns(&self) -> f64 {
         f64::from(self.denom) / f64::from(self.numer)
-    }
-
-    /// When an event happened, on the wall clock.
-    pub fn wall(&self, mach_time: u64) -> SystemTime {
-        self.origin_wall + Duration::from_nanos(self.ns(mach_time))
     }
 }
 
@@ -321,7 +312,6 @@ mod tests {
             origin: 1000,
             numer: 1,
             denom: 1,
-            origin_wall: SystemTime::UNIX_EPOCH,
         }
     }
 
@@ -441,7 +431,6 @@ mod tests {
             origin: 100,
             numer: 125,
             denom: 3,
-            origin_wall: SystemTime::UNIX_EPOCH,
         };
         assert_eq!(clock.ns(103), 125);
         assert_eq!(clock.ns(50), 0, "events before the origin clamp to it");

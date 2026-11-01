@@ -12,7 +12,6 @@
 //! change between releases. `fs_usage(1)` and `ktrace(1)` use it too.
 
 use std::io;
-use std::time::{Duration, SystemTime};
 
 const CTL_KERN: i32 = 1;
 const KERN_KDEBUG: i32 = 24;
@@ -244,26 +243,24 @@ pub fn command_line(pid: i32, buffer: &mut Vec<u8>) -> io::Result<(String, Vec<S
     Ok((executable, argv))
 }
 
-/// When a process started. This tells processes apart when a pid is reused,
-/// which happens often in a build of thousands of processes.
-pub fn start_time(pid: i32) -> io::Result<SystemTime> {
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = size_of::<libc::proc_bsdinfo>() as i32;
-    // SAFETY: `info` is a valid, correctly sized destination for the call.
-    let written = unsafe {
-        libc::proc_pidinfo(
+/// When a process started, in trace time. This tells processes apart when a
+/// pid is reused, which happens often in a build of thousands of processes.
+/// The kernel takes it from the same clock as trace events, so the two compare
+/// exactly.
+pub fn start_time(pid: i32) -> io::Result<u64> {
+    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+    // SAFETY: `info` is a valid destination for this flavor.
+    let result = unsafe {
+        libc::proc_pid_rusage(
             pid,
-            libc::PROC_PIDTBSDINFO,
-            0,
+            libc::RUSAGE_INFO_V4,
             std::ptr::from_mut(&mut info).cast(),
-            size,
         )
     };
-    if written != size {
+    if result != 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(SystemTime::UNIX_EPOCH
-        + Duration::new(info.pbi_start_tvsec, info.pbi_start_tvusec as u32 * 1_000))
+    Ok(info.ri_proc_start_abstime)
 }
 
 /// The file id of the program a process is running now. The kernel's execution
@@ -324,9 +321,19 @@ mod tests {
     }
 
     #[test]
-    fn own_start_time_is_in_the_past() {
-        let started = start_time(std::process::id() as i32).expect("own start time");
-        assert!(started <= SystemTime::now());
+    #[allow(deprecated)]
+    fn a_child_starts_between_the_trace_times_around_its_spawn() {
+        // SAFETY: reads the trace clock.
+        let before = unsafe { libc::mach_absolute_time() };
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("1")
+            .spawn()
+            .expect("spawn");
+        let after = unsafe { libc::mach_absolute_time() };
+        let started = start_time(child.id() as i32).expect("start time");
+        child.kill().expect("kill");
+        child.wait().expect("wait");
+        assert!(before <= started && started <= after);
         assert!(start_time(-1).is_err());
     }
 

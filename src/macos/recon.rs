@@ -13,7 +13,6 @@ use super::kdebug;
 use super::tracker::Clock;
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::time::{Duration, SystemTime};
 
 const NEWTHREAD: u32 = 0x0700_0004;
 const DATA_EXEC: u32 = 0x0700_0008;
@@ -24,14 +23,11 @@ const PROC_EXIT: u32 = 0x0401_0004;
 /// How long, in trace time after a program starts, to keep trying to read its
 /// command line. A read can land before the new program is ready.
 const ARGV_RETRY_NS: u64 = 50_000_000;
-/// How much later than its exec a process may claim to have started before it
-/// is taken to be a different process that reused the pid.
-const REUSE_TOLERANCE: Duration = Duration::from_millis(2);
 
-/// What a process reports about itself. This is when it started, its command
-/// line, and the file id of the program it is running now.
+/// What a process reports about itself. This is when it started, in trace time,
+/// its command line, and the file id of the program it is running now.
 pub struct Inspection {
-    pub started: SystemTime,
+    pub started: u64,
     pub executable: String,
     pub argv: Vec<String>,
     pub image: u64,
@@ -300,7 +296,9 @@ impl Collector {
             Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Err(Unread::Gone),
             Err(_) => return Err(Unread::NotYet),
         };
-        if inspection.started > self.clock.wall(mach_time) + REUSE_TOLERANCE {
+        // A process keeps its start time when it starts another program, so a
+        // later start is another process.
+        if inspection.started > mach_time {
             return Err(Unread::Gone);
         }
         // The kernel reports zero for a file id that does not fit.
@@ -582,7 +580,6 @@ mod tests {
             origin: 0,
             numer: 1,
             denom: 1,
-            origin_wall: std::time::SystemTime::now(),
         };
         let mut collector = Collector::new(100, clock);
         collector.seed_threads([(10, 100)]);
@@ -705,7 +702,7 @@ mod tests {
 
     fn running(argv: &[&str], image: u64) -> io::Result<Inspection> {
         Ok(Inspection {
-            started: SystemTime::UNIX_EPOCH,
+            started: 0,
             executable: argv[0].into(),
             argv: argv.iter().map(|arg| (*arg).to_owned()).collect(),
             image,
@@ -838,6 +835,27 @@ mod tests {
         let messages = collect_ticking(&stream, &mut collector);
         assert_eq!(command_lines(&messages, 100), [vec!["cc".to_owned()]]);
         assert_eq!(reads.get(), 1);
+    }
+
+    #[test]
+    fn a_pid_reused_after_its_exec_is_not_read() {
+        // The exec is at trace time 1010. Only a process that started by then
+        // can be the one that ran it.
+        for (started, expected) in [(1_010, vec!["cc", "-c", "a.c"]), (1_011, vec!["cc"])] {
+            let mut collector = collector();
+            collector.inspect = Box::new(move |_, _| {
+                Ok(Inspection {
+                    started,
+                    ..running(&["cc", "-c", "a.c"], 0)?
+                })
+            });
+            let mut stream = Stream::new();
+            stream
+                .push(10, DATA_EXEC, [100, 0, 0, 0])
+                .push(10, STRING_EXEC, program_name("cc"));
+            let messages = collect_ticking(&stream, &mut collector);
+            assert_eq!(command_lines(&messages, 100), [expected]);
+        }
     }
 
     #[test]
