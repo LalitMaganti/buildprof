@@ -116,13 +116,7 @@ fn escalate() -> io::Result<ExitCode> {
         .args(std::env::args_os().skip(1))
         .spawn();
     let status = child.and_then(|mut child| {
-        // Ctrl-C reaches this process as well as the build. The build decides
-        // what it means, so this process ignores it once sudo has started.
-        // SAFETY: changing this process's own signal dispositions.
-        unsafe {
-            libc::signal(libc::SIGINT, libc::SIG_IGN);
-            libc::signal(libc::SIGQUIT, libc::SIG_IGN);
-        }
+        ignore_interrupts();
         child.wait()
     });
     // The recording deletes the file once it has read it. This removes it when
@@ -266,6 +260,9 @@ pub fn record(
                 format!("could not run {}: {error}", program.to_string_lossy()),
             )
         })?;
+    // The kernel keeps tracing after its owner dies, and the trace is only
+    // written at the end. The recorder therefore outlives an interrupted build.
+    ignore_interrupts();
     let root_pid = build.id() as i32;
     let mut collector = recon::Collector::new(root_pid, clock);
     collector.seed_threads(threads);
@@ -341,6 +338,17 @@ pub fn record(
         None => build.wait()?,
     };
     Ok(exit_code.unwrap_or_else(|| exit_status_code(status)))
+}
+
+/// Ctrl-C reaches this process as well as the build. The build decides what it
+/// means, so this process ignores it once the build or sudo has started. They
+/// were started before this, so they still get it.
+fn ignore_interrupts() {
+    // SAFETY: changing this process's own signal dispositions.
+    unsafe {
+        libc::signal(libc::SIGINT, libc::SIG_IGN);
+        libc::signal(libc::SIGQUIT, libc::SIG_IGN);
+    }
 }
 
 /// Reads and interprets whatever the kernel has buffered.
