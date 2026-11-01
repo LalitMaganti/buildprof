@@ -1021,6 +1021,7 @@ mod tests {
             origin: 0,
             numer: 1,
             denom: 1,
+            origin_wall: std::time::SystemTime::now(),
         };
         let mut collector = Collector::new(100, "/src".into(), clock, true);
         collector.seed_threads([(10, 100)]);
@@ -1169,6 +1170,7 @@ mod tests {
             origin: 0,
             numer: 1,
             denom: 1,
+            origin_wall: std::time::SystemTime::now(),
         };
         let mut collector = Collector::new(100, cwd.clone(), clock, true);
         collector.seed_threads([(10, 100)]);

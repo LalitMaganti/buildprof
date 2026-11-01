@@ -263,9 +263,9 @@ pub fn record(
     } = prepared;
     let program = command.first().expect("validated command");
 
-    // Compiler profiles carry wall-clock times. Both clocks start at the same
-    // instant.
-    compilers.set_origin(SystemTime::now());
+    // Compiler profiles carry wall-clock times. They are placed against the
+    // wall-clock time at which the trace's clock started.
+    compilers.set_origin(clock.origin_wall);
     let mut build = Command::new(program)
         .args(&command[1..])
         .envs(compilers.child_environment())
