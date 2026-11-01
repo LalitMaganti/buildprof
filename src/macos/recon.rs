@@ -747,7 +747,7 @@ impl Collector {
             let directory = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
             let creating = flags & O_CREAT != 0;
             let path = match call.lookups.first() {
-                Some((vnode, raw)) => match self.resolve(pid, *vnode, raw, directory) {
+                Some((vnode, raw)) => match self.resolve(pid, *vnode, raw, directory, creating) {
                     Some((path, false)) => Some(path),
                     Some((path, true)) if self.confirms(&path, creating) => Some(path),
                     // Nothing says where this file is, so it gets no invented
@@ -808,10 +808,10 @@ impl Collector {
                 let from_dir = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
                 let to_dir = at.then(|| call.args[2]).filter(|fd| *fd as i32 != AT_FDCWD);
                 let from = self
-                    .resolve(pid, from_vnode, &from_raw, from_dir)
+                    .resolve(pid, from_vnode, &from_raw, from_dir, false)
                     .map(|(path, _)| path);
                 let to = self
-                    .resolve(pid, to_vnode, &to_raw, to_dir)
+                    .resolve(pid, to_vnode, &to_raw, to_dir, true)
                     .map(|(path, _)| path);
                 if let (Some(from), Some(to)) = (from, to) {
                     out(Message {
@@ -824,7 +824,9 @@ impl Collector {
             }
             CHDIR => {
                 if let Some((vnode, raw)) = call.lookups.first().cloned() {
-                    let resolved = self.resolve(pid, vnode, &raw, None).map(|(path, _)| path);
+                    let resolved = self
+                        .resolve(pid, vnode, &raw, None, false)
+                        .map(|(path, _)| path);
                     if let Some(state) = self.processes.get_mut(&pid) {
                         state.cwd = resolved;
                     }
@@ -896,6 +898,7 @@ impl Collector {
         vnode: u64,
         raw: &str,
         directory: Option<u64>,
+        creating: bool,
     ) -> Option<(String, bool)> {
         if raw.starts_with('/') {
             return Some((normalize(raw), false));
@@ -904,14 +907,17 @@ impl Collector {
         // yet, it is the directory instead. A known path is therefore the same
         // file only if it ends in the same name. This recovers lookups that
         // restarted at a symbolic link.
-        if let Some(known) = self.vnode_paths.get(&vnode)
-            && last_component(known) == last_component(raw)
-        {
-            return Some((known.clone(), false));
-        }
+        let known = self
+            .vnode_paths
+            .get(&vnode)
+            .filter(|known| last_component(known) == last_component(raw))
+            .cloned();
         let base = match directory {
-            Some(fd) => self.fd_path(pid, fd)?,
-            None => self.processes.get(&pid)?.cwd.clone()?,
+            Some(fd) => self.fd_path(pid, fd),
+            None => self.processes.get(&pid)?.cwd.clone(),
+        };
+        let Some(base) = base else {
+            return known.map(|known| (known, false));
         };
         // A lookup can restart at a relative symbolic link near the root, like
         // `/var`, which points at `private/var`. It then continues from the
@@ -924,7 +930,15 @@ impl Collector {
         {
             return Some((normalize(&format!("/{raw}")), false));
         }
-        Some((normalize(&format!("{base}/{raw}")), true))
+        let joined = normalize(&format!("{base}/{raw}"));
+        // The kernel reuses vnodes, and a new name's vnode is its directory,
+        // which may have the same name. A known path therefore only wins when
+        // the joined path cannot be confirmed.
+        match known {
+            None => Some((joined, true)),
+            Some(_) if self.confirms(&joined, creating) => Some((joined, false)),
+            known => known.map(|known| (known, false)),
+        }
     }
 
     /// Whether a joined path is the file an open reached. It is if the build
@@ -1226,7 +1240,7 @@ mod tests {
             .push(10, OPEN | 1, [0, 0, 0, 0])
             .lookup(10, 0x5555, "sdk-26/settings.plist")
             .push(10, OPEN | 2, [0, 4, 0, 0]);
-        let messages = stream.collect(&mut collector());
+        let messages = stream.collect(&mut collector_on(|path| path == "/src"));
         let paths: Vec<_> = messages
             .iter()
             .filter_map(|message| match &message.event {
@@ -1241,6 +1255,44 @@ mod tests {
                 "/toolchain/sdk-26/settings.plist"
             ]
         );
+    }
+
+    #[test]
+    fn a_new_file_named_like_its_directory_is_placed_inside_it() {
+        // `go build` in /src/cmd/foo writes ./foo. The name does not exist
+        // yet, so the lookup reports the directory's vnode, which ends in the
+        // same name.
+        let mut stream = Stream::new();
+        stream
+            .push(10, CHDIR | 1, [0, 0, 0, 0])
+            .lookup(10, 0xd1, "/src/cmd/foo")
+            .push(10, CHDIR | 2, [0, 0, 0, 0])
+            .push(10, OPEN | 1, [0, 0x601, 0, 0])
+            .lookup(10, 0xd1, "foo")
+            .push(10, OPEN | 2, [0, 3, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        let paths: Vec<_> = opens(&messages).iter().map(|open| open.1).collect();
+        assert_eq!(paths, ["/src/cmd/foo/foo"]);
+    }
+
+    #[test]
+    fn a_reused_vnode_does_not_move_a_file() {
+        // The kernel freed /src/a/Makefile's vnode and reused it for
+        // /src/b/Makefile.
+        let mut stream = Stream::new();
+        stream
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x77, "/src/a/Makefile")
+            .push(10, OPEN | 2, [0, 3, 0, 0])
+            .push(10, CHDIR | 1, [0, 0, 0, 0])
+            .lookup(10, 0x88, "b")
+            .push(10, CHDIR | 2, [0, 0, 0, 0])
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x77, "Makefile")
+            .push(10, OPEN | 2, [0, 4, 0, 0]);
+        let messages = stream.collect(&mut collector());
+        let paths: Vec<_> = opens(&messages).iter().map(|open| open.1).collect();
+        assert_eq!(paths, ["/src/a/Makefile", "/src/b/Makefile"]);
     }
 
     #[test]
