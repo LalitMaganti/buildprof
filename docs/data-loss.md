@@ -121,3 +121,6 @@ Buildprof does not yet handle these cases, and does not report them.
   ask `posix_spawn` to open files for the child, for example to redirect its
   output. The kernel opens these files itself while it starts the child, so
   they are not recorded.
+- **Cloned files.** `cp -c` and other tools can copy a file as a clone, with
+  `clonefile`. The copy is created without being opened, so it is not
+  recorded.
