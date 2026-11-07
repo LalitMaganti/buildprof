@@ -20,8 +20,11 @@ Also create the empty `homebrew-tap` repository.
 1. Move the `Unreleased` section of `CHANGELOG.md` under the new version and
    date, and set `version` in `Cargo.toml`. The crate version names the UI's
    `/v<version>/` directory and is what the CLI opens, so they must match.
-   Re-record `examples/*.buildprof` with this version if the trace format
-   changed (see `examples/README.md`).
+   For a new minor version, decide whether this UI still reads the previous
+   minor version's recordings correctly. If it does, add that version to
+   `READS_RECORDINGS_FROM` in the Buildprof UI plugin, so those recordings
+   open without a version warning. If it does not, leave it out, and re-record
+   `examples/*.buildprof` with this version (see `examples/README.md`).
 2. Run `just release-prepare`, which reads `Cargo.toml` and updates the
    action's default recorder version, the docs' release-tag example, and the
    earlier release CI installs. Run `cargo check` to refresh `Cargo.lock`.
@@ -101,9 +104,10 @@ and run `actionlint` on the result. Keep the install commands in
 - Before 1.0 the CLI and UI are in lockstep at the minor version: the trace
   format may change between minor releases and never in a patch release, and
   every released UI stays deployed forever under `/v<version>/` so any
-  recording still has a UI that reads it. The root serves the newest and
-  links to the matching version when the minor version differs; patch drift
-  is not called out.
+  recording still has a UI that reads it. The root serves the newest. It
+  warns and links to the matching version when the minor version differs,
+  unless that version is listed in `READS_RECORDINGS_FROM` as one this UI is
+  known to read correctly; patch drift is not called out.
 - From 1.0 the trace format is stable. Every recording must open in every
   later UI; a change that would break that needs a `buildprof.trace_format`
   bump plus a reader for the old format in the UI, never a new UI for old

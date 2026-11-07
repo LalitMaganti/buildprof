@@ -164,10 +164,17 @@ function matchingUiUrl(trace: Trace, recorder: string): string {
   return traceUrl ? `${base}#!/?url=${encodeURIComponent(traceUrl)}` : base;
 }
 
+/**
+ * Older recorder versions, as major.minor, whose recordings this UI is known
+ * to read correctly. A recording from any other minor version gets a warning
+ * and a link to its own UI. A release adds the previous minor version here
+ * only when nothing it changed would make this UI misread those recordings.
+ */
+const READS_RECORDINGS_FROM: readonly string[] = ["0.2"];
+
 /** Patch releases never change the trace format, so only major.minor counts. */
-function compatibleVersions(a: string, b: string): boolean {
-  const minor = (version: string) => version.split(".").slice(0, 2).join(".");
-  return minor(a) === minor(b);
+function minorVersion(version: string): string {
+  return version.split(".").slice(0, 2).join(".");
 }
 
 /**
@@ -179,11 +186,15 @@ function compatibleVersions(a: string, b: string): boolean {
 async function registerVersionStatus(trace: Trace): Promise<void> {
   const recorder = await recorderVersion(trace);
   const ui = VERSION.replace(/^v/, "");
-  const matches = recorder !== undefined && compatibleVersions(recorder, ui);
+  const sameMinor =
+    recorder !== undefined && minorVersion(recorder) === minorVersion(ui);
+  const matches =
+    recorder !== undefined &&
+    (sameMinor || READS_RECORDINGS_FROM.includes(minorVersion(recorder)));
   const label =
     recorder === undefined
       ? `Buildprof ${ui} · trace predates 0.2.0`
-      : matches
+      : sameMinor
         ? `Buildprof ${ui}`
         : `Recorded with Buildprof ${recorder} · UI ${ui}`;
   const link =
