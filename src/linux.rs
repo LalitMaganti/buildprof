@@ -4,7 +4,7 @@
 use self::{ptrace::*, seccomp::*, tracee::*};
 use crate::blind_spots::BlindSpots;
 use crate::compiler::{self, Capture};
-use crate::model::{FileOpen, Process, Rename, Segment, exit_code};
+use crate::model::{FileOpen, PathChange, PathChangeKind, Process, Rename, Segment, exit_code};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CString, OsString, c_void};
@@ -94,6 +94,7 @@ pub fn record(
         newborns: HashMap::new(),
         pending_opens: HashMap::new(),
         pending_renames: HashMap::new(),
+        pending_changes: HashMap::new(),
         exit_codes: HashMap::new(),
         processes: HashMap::from([(
             child,
@@ -147,6 +148,7 @@ struct Tracer<'writer> {
     newborns: HashMap<i32, i32>,
     pending_opens: HashMap<i32, PendingOpen>,
     pending_renames: HashMap<i32, PendingRename>,
+    pending_changes: HashMap<i32, PathChange>,
     exit_codes: HashMap<i32, u32>,
     processes: HashMap<i32, ProcessState>,
 }
@@ -280,6 +282,43 @@ impl Tracer<'_> {
             return call(SYSCALL, tid, 0, 0).map(|_| ());
         }
 
+        // Deletes and timestamp changes, also resolved on entry.
+        if let Some((kind, args)) = path_change(nr) {
+            let (dirfd, address) = match args {
+                PathArgs::Bare => (libc::AT_FDCWD, seccomp.args[0]),
+                PathArgs::At => (seccomp.args[0] as i32, seccomp.args[1]),
+            };
+            // unlinkat(dirfd, path, flags): removing a directory is not a file
+            // the build could depend on.
+            let removes_directory = kind == PathChangeKind::Delete
+                && matches!(args, PathArgs::At)
+                && seccomp.args[2] & libc::AT_REMOVEDIR as u64 != 0;
+            let path = if removes_directory {
+                None
+            } else if address == 0 {
+                // futimens(fd) arrives as utimensat(fd, NULL, ...).
+                std::fs::read_link(format!("/proc/{tid}/fd/{dirfd}"))
+                    .ok()
+                    .map(|path| path.to_string_lossy().into_owned())
+            } else {
+                read_c_string(tid, address as usize, MAX_PATH_BYTES)
+                    .ok()
+                    .filter(|raw| !raw.is_empty())
+                    .map(|raw| resolve_at_path(tid, dirfd, &raw))
+            };
+            if let Some(path) = path {
+                self.pending_changes.insert(
+                    tid,
+                    PathChange {
+                        timestamp_ns: self.now_ns(),
+                        kind,
+                        path,
+                    },
+                );
+            }
+            return call(SYSCALL, tid, 0, 0).map(|_| ());
+        }
+
         let (path_address, flags) = if is_bare_open(nr) {
             (seccomp.args[0], seccomp.args[1])
         } else if nr == libc::SYS_openat {
@@ -323,6 +362,20 @@ impl Tracer<'_> {
                         to: pending.to,
                     },
                 )?;
+            }
+            return self.resume(tid, 0);
+        }
+        if let Some(pending) = self.pending_changes.remove(&tid) {
+            let Some(info) = allow_dead(syscall_info(tid))? else {
+                return Ok(());
+            };
+            if info.op != SYSCALL_INFO_EXIT {
+                self.pending_changes.insert(tid, pending);
+                return call(SYSCALL, tid, 0, 0).map(|_| ());
+            }
+            if unsafe { info.data.exit }.rval == 0 {
+                let tgid = self.tasks.get(&tid).copied().unwrap_or(tid);
+                self.writer.path_change(tgid, &pending)?;
             }
             return self.resume(tid, 0);
         }
@@ -486,6 +539,7 @@ impl Tracer<'_> {
         self.started.remove(&tid);
         self.pending_opens.remove(&tid);
         self.pending_renames.remove(&tid);
+        self.pending_changes.remove(&tid);
         self.newborns.remove(&tid);
         let tgid = self.tasks.remove(&tid).unwrap_or(tid);
         let exit_code = exit_code(status);
@@ -511,7 +565,10 @@ impl Tracer<'_> {
     }
 
     fn resume_with_mode(&self, tid: i32, signal: i32) -> io::Result<()> {
-        if self.pending_opens.contains_key(&tid) || self.pending_renames.contains_key(&tid) {
+        if self.pending_opens.contains_key(&tid)
+            || self.pending_renames.contains_key(&tid)
+            || self.pending_changes.contains_key(&tid)
+        {
             ignore_dead(call(SYSCALL, tid, 0, signal as usize))
         } else {
             self.resume(tid, signal)
