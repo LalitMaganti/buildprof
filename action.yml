@@ -9,7 +9,7 @@ inputs:
     required: true
   version:
     description: Buildprof release tag to install.
-    default: v0.2.8
+    default: v0.3.0
   recorder:
     description: >-
       Path to a recorder binary to use instead of installing a release. This

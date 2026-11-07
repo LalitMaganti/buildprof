@@ -7,19 +7,63 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-### Added
+## [0.3.0] - 2026-11-07
 
-- `buildprof open` accepts a URL. GitHub Actions artifact URLs are downloaded
-  with the GitHub CLI and other URLs with `curl`, then served like a local
-  recording. The GitHub Action's job summary now prints this command.
+We're excited to share Buildprof 0.3.0; the big new update in this release:
+buildprof can now record builds on macOS!
 
-### Fixed
+Other improvements include: opening buildprof URLs from the command line,
+tracing Clang compiler details when it's run by absolute path, and much
+clearer guidance when the build profile might be missing or broken.
 
-- `--compiler-traces` now records Clang phases when the build runs Clang by
-  path, as GN and many CMake toolchains do. It previously only saw Clang
-  invoked by name through `PATH`. A compile's own `-ftime-trace` now keeps its
-  trace where it asked for it, and ccache hits are no longer turned into
-  misses for Clang.
+### Record builds on macOS
+
+`buildprof -- <command>` now works on macOS 13 and newer, and gives the same
+familiar timeline as on Linux!
+
+- **Root needed on startup.** buildprof uses `sudo` to turn on kernel
+  tracing, then switches back to your user before your build starts. The
+  [root policy](https://github.com/LalitMaganti/buildprof/blob/main/docs/root-policy.md) explains why we
+  need root and what we do with it in detail.
+- **Run it as yourself.** Buildprof refuses to run under `sudo` or as root. This is to
+  prevent filling your output directories with files you can only touch with root.
+- **Known gaps.** Due to fundamental OS limitations, macOS recording cannot be as precise
+  as Linux: some SDK paths show as `<unknown>/...`, and a few very fast running
+  commands show only their program name. The
+  [new data loss page](https://github.com/LalitMaganti/buildprof/blob/main/docs/data-loss.md#unknown-paths)
+  explains these limitations.
+
+### Open a recording from a URL
+
+`buildprof open <url>` downloads a buildprof recording and opens it in the UI. It accepts
+any publicly accessible URL but also GitHub Actions artifact URLs which it accesses via
+the `gh` CLI so even private recordings are supported.
+
+Tied to this, the GitHub Action's job summary prints the command
+for each recording. The [usage guide](https://github.com/LalitMaganti/buildprof/blob/main/docs/usage.md#opening-recordings)
+has more details.
+
+### Clang traces for toolchains that run Clang by path
+
+`--compiler-traces` now traces Clang when the build system runs it via an absolute path, something
+which affects many GN and CMake projects. The [compiler details page](https://github.com/LalitMaganti/buildprof/blob/main/docs/usage.md#compiler-details)
+explains in more detail.
+
+### See when a recording may be incomplete
+
+When a build spawns a process that Buildprof cannot follow, such as a Docker
+or Bazel daemon, the UI status bar now shows "Recording may be incomplete".
+The [data loss page](https://github.com/LalitMaganti/buildprof/blob/main/docs/data-loss.md#work-done-outside-the-build) explains
+each case.
+
+### Other changes
+
+- `--compiler-traces` keeps a compile's own `-ftime-trace` output, and no
+  longer turns ccache hits into misses for Clang.
+- Compiler wrapper steps are named after the compiler, such as `rustc`,
+  instead of `buildprof-rustc-wrapper`.
+- The UI is on a newer Perfetto, with everything from Perfetto v59.1.
+- New example recordings of a no-op Node.js build.
 
 ## [0.2.8] - 2026-10-17
 
