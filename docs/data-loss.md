@@ -91,7 +91,8 @@ arguments.
 **Why.** The kernel's trace does not include command lines. Instead, Buildprof
 reads each command line from the process itself, as soon as the process
 starts. If the process finishes before Buildprof reads it, its command line is
-gone.
+gone. To catch short commands, Buildprof reads every quarter of a millisecond
+while processes are starting.
 
 **Launchers.** Some programs are small launchers that start the real program in
 the same process. On macOS, `/bin/sh` starts `bash`, and `/usr/bin/cc` starts
@@ -106,9 +107,14 @@ program has already started.
 
 Launchers are not counted in the note after the recording.
 
-**How often.** Only very short commands are affected. In a test build that ran
-10,001 quick shell and utility commands, two or three lost their arguments. No
-compiler, linker or build tool did.
+**How often.** Only very short commands are affected, like `pwd`, `mkdir` or
+`rm`. Compilers, linkers and build tools run long enough to be read. Measured
+on an M3 MacBook Air:
+
+- A clean build of Git, about 3,200 processes: none to two lost their
+  arguments.
+- A stress test of 1,200 back-to-back `pwd` and `mkdir` commands: about 2% lost
+  their arguments.
 
 ## Not followed yet
 
