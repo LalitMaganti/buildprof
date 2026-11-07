@@ -199,7 +199,7 @@ fn record(
 ) -> ExitCode {
     error!("recording needs Linux or macOS; this build can only view traces");
     hint!(
-        "record on a Linux machine, copy the trace here, and run {}",
+        "record on Linux or macOS, copy the trace here, and run {}",
         report::emph("buildprof open <TRACE>")
     );
     ExitCode::FAILURE
