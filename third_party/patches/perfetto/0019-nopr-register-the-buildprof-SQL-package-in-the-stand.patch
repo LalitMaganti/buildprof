@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: buildprof-perfetto <buildprof-perfetto@localhost>
+Date: Tue, 20 Oct 2026 21:44:09 -0700
+Subject: nopr: register the buildprof SQL package in the standard library
+
+---
+ src/trace_processor/perfetto_sql/stdlib/BUILD.gn | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/trace_processor/perfetto_sql/stdlib/BUILD.gn b/src/trace_processor/perfetto_sql/stdlib/BUILD.gn
+index 38d1fa536a..fd53a7280b 100644
+--- a/src/trace_processor/perfetto_sql/stdlib/BUILD.gn
++++ b/src/trace_processor/perfetto_sql/stdlib/BUILD.gn
+@@ -21,6 +21,7 @@ perfetto_amalgamated_sql_header("amalgamated_stdlib") {
+   deps = [
+     "android",
+     "appleos",
++    "buildprof",
+     "callstacks",
+     "chrome:chrome_sql",
+     "counters",
