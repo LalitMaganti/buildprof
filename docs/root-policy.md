@@ -31,8 +31,15 @@ root. That is what lets Buildprof drop root so early.
    starts your build, reads the trace and writes the recording. You own the
    recording file.
 
-If you start Buildprof from a root shell, it stops with an error, because it
-has no other user to run your build as.
+## Run it as yourself
+
+Like Homebrew, Buildprof runs as you and asks `sudo` for root when it needs
+it. Running it as yourself lets it save your environment before `sudo` resets
+it, and gives it a user to run your build as. If you run Buildprof with
+`sudo`, or from a root shell, it stops and asks you to run it as yourself.
+
+If you would rather type your password into `sudo` directly, run `sudo -v`
+first. Buildprof then uses the login `sudo` remembers, and does not ask.
 
 ## While you record
 

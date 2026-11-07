@@ -75,24 +75,25 @@ pub fn prepare(saved_environment: Option<&Path>) -> io::Result<Start> {
     if unsafe { libc::geteuid() } != 0 {
         return escalate().map(Start::Finished);
     }
+    // Like Homebrew, Buildprof runs only as you. It asks sudo for root itself,
+    // so it can save your environment first. Run with sudo or from a root
+    // shell, it would get sudo's environment, or have no user to build as.
+    // SAFETY: reading the process's own credentials.
+    if saved_environment.is_none() && unsafe { libc::getuid() } == 0 {
+        return Err(io::Error::other(format!(
+            "don't run buildprof with sudo or as root. Run it as yourself: it asks sudo for \
+             root when it needs it, and runs your build as you. What Buildprof does as root: \
+             {}root",
+            crate::blind_spots::DIAGNOSE_URL
+        )));
+    }
     let (uid, gid) = target_user()?;
     let session = kdebug::Session::start(BUFFER_EVENTS)?;
     let threads = session.thread_map()?;
     let clock = Clock::now();
-    let started_by_sudo = std::env::var_os("SUDO_UID").is_some();
     drop_privileges(uid, gid)?;
-    match saved_environment {
-        Some(path) => restore_saved_environment(path, uid)?,
-        None => {
-            restore_user_environment(uid);
-            if started_by_sudo {
-                hint!(
-                    "sudo reset the environment, so the build may miss variables you set, like CC \
-                     or RUSTFLAGS; run {} without sudo to keep them",
-                    report::emph("buildprof")
-                );
-            }
-        }
+    if let Some(path) = saved_environment {
+        restore_saved_environment(path, uid)?;
     }
     Ok(Start::Recording(Prepared {
         session,
@@ -415,58 +416,6 @@ fn drop_privileges(uid: u32, gid: u32) -> io::Result<()> {
         }
     }
     Ok(())
-}
-
-/// Puts back what sudo replaced, so the build sees its own environment.
-fn restore_user_environment(uid: u32) {
-    let entry = unsafe { libc::getpwuid(uid) };
-    if entry.is_null() {
-        return;
-    }
-    let text = |value: *const libc::c_char| {
-        (!value.is_null()).then(|| {
-            unsafe { std::ffi::CStr::from_ptr(value) }
-                .to_string_lossy()
-                .into_owned()
-        })
-    };
-    let (name, home, shell) = unsafe {
-        (
-            text((*entry).pw_name),
-            text((*entry).pw_dir),
-            text((*entry).pw_shell),
-        )
-    };
-    for (key, value) in [
-        ("USER", name.clone()),
-        ("LOGNAME", name),
-        ("HOME", std::env::var("SUDO_HOME").ok().or(home)),
-        ("SHELL", shell),
-    ] {
-        if let Some(value) = value {
-            // SAFETY: single-threaded, before the build starts.
-            unsafe { std::env::set_var(key, value) };
-        }
-    }
-    // The per-user temporary directory depends on the current credentials. This
-    // is only right after privileges are dropped.
-    let mut buffer = [0_i8; libc::PATH_MAX as usize];
-    let length = unsafe {
-        libc::confstr(
-            libc::_CS_DARWIN_USER_TEMP_DIR,
-            buffer.as_mut_ptr(),
-            buffer.len(),
-        )
-    };
-    if length > 1 {
-        let bytes: Vec<u8> = buffer[..length - 1]
-            .iter()
-            .map(|byte| *byte as u8)
-            .collect();
-        if let Ok(path) = String::from_utf8(bytes) {
-            unsafe { std::env::set_var("TMPDIR", path) };
-        }
-    }
 }
 
 fn user_name(uid: u32) -> Option<CString> {
