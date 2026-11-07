@@ -1,0 +1,54 @@
+{
+  "_": "The words for what the buildprof SQL package names by key. A front end renders a template by substituting its {variables}; the SQL never builds a string. Shared by every front end, so they all say the same thing. A key has no dot in it: a dot joins keys. Text in backticks is code.",
+  "options": {
+    "title": "How {tool} was run",
+    "default": "{value} (the default)",
+    "measured": "{average} at a time on average, {peak} at most",
+    "measured_title": "actually ran",
+    "name": {
+      "opt-level": "opt-level",
+      "codegen-units": "codegen-units",
+      "debuginfo": "debuginfo",
+      "incremental": "incremental",
+      "lto": "lto",
+      "build-script": "compiles a build script",
+      "profile": "profile",
+      "jobs": "jobs",
+      "load": "load limit",
+      "timeout": "timeout",
+      "workers": "workers",
+      "test-threads": "test threads"
+    },
+    "tool_name": {
+      "cc": {
+        "opt-level": "optimization",
+        "debuginfo": "debug info",
+        "lto": "LTO"
+      },
+      "ctest": {
+        "jobs": "parallel tests"
+      }
+    },
+    "value": {
+      "true": "yes",
+      "false": "no",
+      "cpus": "one per CPU",
+      "cpus_plus_2": "CPUs + 2",
+      "unlimited": "unlimited",
+      "inherited": "from the parent make"
+    },
+    "unit": {
+      "timeout": "{value} s"
+    },
+    "tool": {
+      "rustc": "rustc",
+      "cargo": "cargo",
+      "make": "make",
+      "ninja": "ninja",
+      "ctest": "ctest",
+      "cc": "the C compiler",
+      "pytest": "pytest",
+      "libtest": "this test binary"
+    }
+  }
+}
