@@ -31,8 +31,8 @@ recording into an **interactive timeline** you can explore in the browser. Put
   the process tree.
 - **Follow the files.** File opens and renames are recorded alongside the
   processes, so the recording links a file's producer to everything that
-  consumed it. That link is usually how you find the step waiting on work it
-  did not need.
+  consumed it. This shows when a step waits for another step whose output it
+  never reads.
 - **Whatever your build system.** Buildprof follows processes rather than build
   systems, so Make, Ninja, CMake, Meson, Cargo, Go, npm, Bazel and Buck2 all
   work, as do the shell scripts, code generators and wrapper scripts they
@@ -105,10 +105,10 @@ bottlenecks, following file dependencies, and checking whether a change helped.
 - **Turn collection down.** `--no-file-events` keeps the process timeline and
   skips filesystem interception entirely, for builds where that overhead
   matters. ([details](docs/usage.md#collection-options))
-- **Keep your build to yourself.** buildprof.lalitm.com delivers the UI and
-  nothing else: your browser fetches the recording from localhost and processes
-  it in the page. Recordings do contain command lines and paths, so review one
-  before sending it to anyone.
+- **Keep your build to yourself.** buildprof.lalitm.com only serves the UI.
+  Your browser loads the recording from your own machine and processes it in
+  the page, so the recording stays on your machine. A recording contains
+  command lines and paths, so review it before sending it to anyone.
 - **Check the conformance suite.** Every change records a real build with each
   supported build system and checks the resulting trace.
   ([details](docs/build-systems.md))
@@ -187,10 +187,10 @@ musl. The musl build is the one to mount into a container.
   - Docker needs `--cap-add SYS_PTRACE`.
   - `kernel.yama.ptrace_scope` must be below 3.
   - gVisor-style sandboxes cannot trace at all.
-- **Viewing needs nothing.** Recordings open on any platform in the
-  [web UI](https://buildprof.lalitm.com), whatever they were recorded on, with
-  Buildprof installed or not.
-- **Building from source needs Rust 1.91 or newer.**
+- **Viewing just needs a browser.** Any recording opens in the
+  [web UI](https://buildprof.lalitm.com) on any computer, with or without
+  Buildprof installed.
+- **Compiling Buildprof from source needs Rust 1.91 or newer.**
 
 ## Documentation
 
