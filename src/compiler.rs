@@ -625,6 +625,33 @@ fn rust_version_is_nightly(version: &[u8]) -> bool {
     text.contains("nightly") || text.contains("-dev")
 }
 
+/// The compiler a program stands in for, when the program is one of
+/// Buildprof's own compiler wrappers. A recording names the wrapper's segment
+/// after that compiler. The Clang wrappers share the compiler's name, so
+/// `runs_buildprof` is asked whether the running program is Buildprof itself.
+pub fn wrapped_compiler(argv: &[String], runs_buildprof: impl FnOnce() -> bool) -> Option<String> {
+    let name = |arg: &String| {
+        Path::new(arg)
+            .file_name()
+            .and_then(OsStr::to_str)
+            .map(str::to_owned)
+    };
+    let program = name(argv.first()?)?;
+    if program == RUST_WRAPPER_KIND {
+        // Cargo runs the wrapper with the compiler as its first argument.
+        return Some(argv.get(1).and_then(name).unwrap_or_else(|| "rustc".into()));
+    }
+    let clang = program == CLANG_WRAPPER_KIND || program == CLANGXX_WRAPPER_KIND;
+    (clang && runs_buildprof()).then_some(program)
+}
+
+/// Whether `path` leads to this copy of Buildprof, after following links.
+pub fn is_buildprof(path: &Path) -> bool {
+    static OWN: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    let own = OWN.get_or_init(|| env::current_exe().and_then(fs::canonicalize).ok());
+    own.is_some() && fs::canonicalize(path).ok().as_ref() == own.as_ref()
+}
+
 pub fn run_wrapper() -> Option<ExitCode> {
     let invoked_as = env::args_os()
         .next()
@@ -850,6 +877,47 @@ mod tests {
             OsString::from("-fsyntax-only"),
             OsString::from("main.cc"),
         ]));
+    }
+
+    #[test]
+    fn names_a_wrapper_after_the_compiler_it_stands_in_for() {
+        let argv = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        let rust = argv(&[
+            "/tmp/buildprof-compilers-1/bin/buildprof-rustc-wrapper",
+            "/home/me/.rustup/toolchains/nightly/bin/rustc",
+            "-vV",
+        ]);
+        // The Rust wrapper is known by its name alone.
+        assert_eq!(
+            wrapped_compiler(&rust, || panic!("not asked")),
+            Some("rustc".into())
+        );
+        // The Clang wrappers share the compiler's name.
+        assert_eq!(
+            wrapped_compiler(&argv(&["clang++", "-c", "a.cc"]), || true),
+            Some("clang++".into())
+        );
+        assert_eq!(
+            wrapped_compiler(&argv(&["clang", "-c", "a.c"]), || false),
+            None
+        );
+        assert_eq!(
+            wrapped_compiler(&argv(&["cc", "-c", "a.c"]), || panic!("not asked")),
+            None
+        );
+    }
+
+    #[test]
+    fn recognizes_this_copy_of_buildprof_through_a_link() {
+        let directory =
+            std::env::temp_dir().join(format!("buildprof-is-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        fs::create_dir(&directory).unwrap();
+        let link = directory.join("clang");
+        symlink(env::current_exe().unwrap(), &link).unwrap();
+        assert!(is_buildprof(&link));
+        assert!(!is_buildprof(Path::new("/bin/sh")));
+        fs::remove_dir_all(&directory).unwrap();
     }
 
     #[test]

@@ -145,6 +145,54 @@ def test_default_toolchain_builds_and_traces_only_if_nightly(
         assert events == 0, f"a stable rustc produced {events} compiler events"
 
 
+def _wrapper_steps(trace: Path, name: str) -> list:
+    """For each process that ran `name` through Buildprof's wrapper, its steps
+    as (name, is a wrapper) pairs."""
+    return [
+        [(segment.name, segment.compiler_wrapper) for segment in process.segments]
+        for process in load_perfetto(trace).values()
+        if any(
+            segment.compiler_wrapper and segment.name == name
+            for segment in process.segments
+        )
+    ]
+
+
+def test_the_rust_wrapper_is_named_after_rustc(buildprof: Path, tmp_path: Path):
+    """Cargo runs rustc through Buildprof's wrapper. The wrapper's step is named
+    after rustc and marked, and the real rustc follows it in the same
+    process."""
+    _require("cargo")
+    project = tmp_path / "default"
+    project.mkdir()
+    _cargo_project(project, None)
+
+    trace = _record(buildprof, project, ["cargo", "build", "--offline"], {})
+
+    names = {
+        segment.name
+        for process in load_perfetto(trace).values()
+        for segment in process.segments
+    }
+    assert "buildprof-rustc-wrapper" not in names
+    steps = _wrapper_steps(trace, "rustc")
+    assert [("rustc", True), ("rustc", False)] in steps, steps
+
+
+def test_the_clang_wrapper_is_marked(buildprof: Path, tmp_path: Path):
+    """Clang found on `PATH` runs through Buildprof's wrapper of the same
+    name. Only the wrapper's step is marked."""
+    _require("clang")
+    _require("clang++")
+    project = _clang_project(tmp_path)
+
+    trace = _record(
+        buildprof, project, ["clang", "-c", "a/hello.c", "-o", "a/hello.o"], {}
+    )
+
+    assert _wrapper_steps(trace, "clang") == [[("clang", True), ("clang", False)]]
+
+
 def test_ccache_wrappers_on_path_do_not_loop(buildprof: Path, tmp_path: Path):
     """A compiler launcher must not find the wrapper that launched it.
 

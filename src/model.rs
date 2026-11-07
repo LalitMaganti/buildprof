@@ -25,6 +25,9 @@ pub struct Segment {
     pub command: String,
     pub cwd: String,
     pub exit_code: Option<u32>,
+    /// The program was one of Buildprof's own compiler wrappers. The segment
+    /// is named after the compiler the wrapper stands in for.
+    pub compiler_wrapper: bool,
 }
 
 impl Process {
@@ -116,6 +119,7 @@ mod tests {
             command: String::new(),
             cwd: String::new(),
             exit_code: None,
+            compiler_wrapper: false,
         };
         segment.end_at(5);
         assert_eq!(segment.end_ns, 6);

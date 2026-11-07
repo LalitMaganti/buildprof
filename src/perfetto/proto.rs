@@ -97,6 +97,7 @@ pub(super) mod buildprof_event {
     pub(crate) const BACKEND: u32 = 14;
     pub(crate) const COMPILER_CATEGORY: u32 = 15;
     pub(crate) const PATH_UNRESOLVED: u32 = 16;
+    pub(crate) const COMPILER_WRAPPER: u32 = 17;
 }
 
 mod extension_descriptor {
@@ -390,6 +391,11 @@ impl BuildprofEvent<'_, '_> {
             .boolean(buildprof_event::PATH_UNRESOLVED, value)
     }
 
+    pub(super) fn compiler_wrapper(&mut self, value: bool) -> io::Result<()> {
+        self.encoder
+            .boolean(buildprof_event::COMPILER_WRAPPER, value)
+    }
+
     pub(super) fn flags(&mut self, value: u64) -> io::Result<()> {
         self.encoder.uint(buildprof_event::FLAGS, value)
     }
@@ -454,6 +460,11 @@ fn encode_buildprof_event_descriptor(message: &mut Encoder<'_>) -> io::Result<()
         (
             "path_unresolved",
             buildprof_event::PATH_UNRESOLVED,
+            field_descriptor::TYPE_BOOL,
+        ),
+        (
+            "compiler_wrapper",
+            buildprof_event::COMPILER_WRAPPER,
             field_descriptor::TYPE_BOOL,
         ),
         (

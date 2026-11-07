@@ -30,6 +30,9 @@ class Segment:
     parent_pid: int
     exit_code: int | None
     execed: bool
+    # One of Buildprof's compiler wrappers, named after the compiler it
+    # stands in for.
+    compiler_wrapper: bool = False
 
     @property
     def end_ns(self) -> int:
@@ -91,7 +94,9 @@ def load_perfetto(path: Path) -> dict[int, Process]:
                   extract_arg(s.arg_set_id, 'debug.pid') as pid,
                   extract_arg(s.arg_set_id, 'debug.ppid') as parent_pid,
                   extract_arg(s.arg_set_id, 'debug.exit_code') as exit_code,
-                  extract_arg(s.arg_set_id, 'debug.execed') as execed
+                  extract_arg(s.arg_set_id, 'debug.execed') as execed,
+                  extract_arg(s.arg_set_id, 'debug.compiler_wrapper')
+                    as compiler_wrapper
                 from slice s
                 where extract_arg(s.arg_set_id, 'debug.pid') is not null
                 order by s.ts
@@ -115,6 +120,7 @@ def load_perfetto(path: Path) -> dict[int, Process]:
             # Absent in traces recorded before fork-only processes were kept;
             # everything in those did exec.
             execed=bool(row.execed) if row.execed is not None else True,
+            compiler_wrapper=bool(row.compiler_wrapper),
         )
         grouped.setdefault(segment.pid, []).append(segment)
 
