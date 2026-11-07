@@ -151,8 +151,10 @@ fn authorize() -> io::Result<()> {
         ));
     }
     hint!(
-        "kernel tracing needs administrator access; asking {} for your password",
-        report::emph("sudo")
+        "kernel tracing needs root; asking {} for your password. Your build will run as you. \
+         What Buildprof does as root: {}",
+        report::emph("sudo"),
+        report::emph(format_args!("{}root", crate::blind_spots::DIAGNOSE_URL))
     );
     if !granted(Command::new("sudo").arg("-v").status())? {
         return Err(io::Error::other("sudo did not grant administrator access"));

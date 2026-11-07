@@ -188,7 +188,8 @@ musl. The musl build is the one to mount into a container.
   - `kernel.yama.ptrace_scope` must be below 3.
   - gVisor-style sandboxes cannot trace at all.
 - **Recording on macOS** needs macOS 13 or newer. Buildprof asks for your
-  password through `sudo`, and gives up root before your build starts.
+  password through `sudo`, and gives up root before your build starts. The
+  [root policy](docs/root-policy.md) says what runs as root.
 - **Viewing just needs a browser.** Any recording opens in the
   [web UI](https://buildprof.lalitm.com) on any computer, with or without
   Buildprof installed.
