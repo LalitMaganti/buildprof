@@ -18,7 +18,7 @@
 //! with. The trace file belongs to the person who ran the recording. Nothing
 //! privileged is left running.
 
-use self::event::Message;
+use self::event::{Event, Message};
 use self::tracker::{Clock, TraceSink, Tracker};
 use crate::blind_spots::BlindSpots;
 use crate::perfetto::Writer;
@@ -41,10 +41,16 @@ mod tracker;
 /// million events a second. The buffer holds about a hundred times what the
 /// recorder collects in one read, so a stall in reading does not lose events.
 const BUFFER_EVENTS: usize = 512 * 1024;
-/// The longest wait for the kernel to fill a batch. A short wait means a
-/// process's command line is still readable when its exec is seen. A longer one
-/// costs less CPU.
-const READ_INTERVAL: Duration = Duration::from_millis(1);
+/// How soon to read again after a read that saw a process or program start.
+/// A command line can only be read while its process lives, and tools like pwd
+/// or mkdir live well under a millisecond. On a clean git build, reads 1ms apart
+/// lost 120 to 160 command lines, and reads 250us apart lost one. Below about
+/// 100us the scheduler stops honouring the recorder's time slot, and it falls
+/// behind.
+const FAST_READ_INTERVAL: Duration = Duration::from_micros(250);
+/// The longest gap between reads while nothing starts. The gap doubles after
+/// each quiet read, so long compiles and links wake the recorder rarely.
+const SLOW_READ_INTERVAL: Duration = Duration::from_millis(4);
 /// How often to look for the end of a build whose last exits were not seen.
 const LIVENESS_INTERVAL: Duration = Duration::from_millis(250);
 /// How long to keep reading after the build, to collect trailing events.
@@ -267,7 +273,13 @@ pub fn record(
     // written at the end. The recorder therefore outlives an interrupted build.
     ignore_interrupts();
     let root_pid = build.id() as i32;
-    let mut collector = recon::Collector::new(root_pid);
+    let mut collector = recon::Collector::new(root_pid, clock);
+    collector.set_root_command(
+        command
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect(),
+    );
     collector.seed_threads(threads);
 
     let mut sink = TraceSink { writer };
@@ -286,13 +298,25 @@ pub fn record(
     );
 
     keep_up(&clock);
+    let waker = Waker::new()?;
+    waker.watch(root_pid);
+    // Every process the build starts is watched, so its own children wake the
+    // recorder.
+    let mut handle = |message: Message| {
+        if let Event::Fork { child } = message.event {
+            waker.watch(child);
+        }
+        tracker.handle(message)
+    };
+    let mut interval = FAST_READ_INTERVAL;
+    let mut started = 0;
+    let mut woken = false;
     let mut root_status = None;
     let mut last_check = Instant::now();
     let mut ended: Option<Instant> = None;
     loop {
-        collect(&mut session, &mut collector, &mut |message| {
-            tracker.handle(message)
-        })?;
+        collect(&mut session, &mut collector, &mut handle)?;
+        collector.tick(&mut handle)?;
         if let Some(ended) = ended
             && ended.elapsed() > DRAIN
         {
@@ -318,9 +342,28 @@ pub fn record(
             }
         }
         // Pace the reads. A read costs about the same however much it returns,
-        // so reading nonstop wastes a core. The kernel ends the wait early when
-        // a batch is ready.
-        let _ = session.wait(READ_INTERVAL.as_millis() as u64);
+        // so reading nonstop wastes a core and power. Reads come quickly only
+        // while processes start, which is when command lines are at risk. A
+        // fork or exec in the build ends a quiet wait at once.
+        interval = if woken || collector.started != started {
+            FAST_READ_INTERVAL
+        } else {
+            (interval * 2).min(SLOW_READ_INTERVAL)
+        };
+        started = collector.started;
+        woken = waker.wait(interval);
+    }
+    collector.flush(&mut handle)?;
+    match collector.unnamed {
+        0 => {}
+        1 => note!(
+            "1 process ended before its command line could be read; it is named after its \
+             program alone"
+        ),
+        n => note!(
+            "{n} processes ended before their command line could be read; they are named after \
+             their program alone"
+        ),
     }
     if collector.dropped > 0 {
         let times = match collector.dropped {
@@ -350,6 +393,74 @@ fn ignore_interrupts() {
     unsafe {
         libc::signal(libc::SIGINT, libc::SIG_IGN);
         libc::signal(libc::SIGQUIT, libc::SIG_IGN);
+    }
+}
+
+/// Wakes the recorder when a process of the build forks or starts a program.
+/// The trace reports these too, but only once the recorder reads it.
+struct Waker {
+    queue: i32,
+}
+
+impl Waker {
+    fn new() -> io::Result<Self> {
+        // SAFETY: creates a descriptor this struct owns.
+        let queue = unsafe { libc::kqueue() };
+        if queue < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(Self { queue })
+    }
+
+    /// Watches `pid`. A process that has already exited is ignored.
+    fn watch(&self, pid: i32) {
+        let change = libc::kevent {
+            ident: pid as usize,
+            filter: libc::EVFILT_PROC,
+            flags: libc::EV_ADD | libc::EV_CLEAR,
+            fflags: libc::NOTE_FORK | libc::NOTE_EXEC,
+            data: 0,
+            udata: std::ptr::null_mut(),
+        };
+        // SAFETY: one valid change, and no events asked for.
+        unsafe {
+            libc::kevent(
+                self.queue,
+                &change,
+                1,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null(),
+            );
+        }
+    }
+
+    /// Waits up to `timeout`. Returns whether a watched process woke it.
+    fn wait(&self, timeout: Duration) -> bool {
+        let mut events: [libc::kevent; 16] = unsafe { std::mem::zeroed() };
+        let timeout = libc::timespec {
+            tv_sec: timeout.as_secs() as libc::time_t,
+            tv_nsec: timeout.subsec_nanos() as libc::c_long,
+        };
+        // SAFETY: `events` has room for the count given.
+        let count = unsafe {
+            libc::kevent(
+                self.queue,
+                std::ptr::null(),
+                0,
+                events.as_mut_ptr(),
+                events.len() as i32,
+                &timeout,
+            )
+        };
+        count > 0
+    }
+}
+
+impl Drop for Waker {
+    fn drop(&mut self) {
+        // SAFETY: closes the descriptor this struct owns.
+        unsafe { libc::close(self.queue) };
     }
 }
 
@@ -450,9 +561,9 @@ fn executable_name(command: &OsString) -> String {
 fn keep_up(clock: &Clock) {
     let ticks = |interval: Duration| (interval.as_nanos() as f64 * clock.ticks_per_ns()) as u32;
     let mut policy = libc::thread_time_constraint_policy {
-        period: ticks(READ_INTERVAL),
-        computation: ticks(READ_INTERVAL / 2),
-        constraint: ticks(READ_INTERVAL),
+        period: ticks(FAST_READ_INTERVAL),
+        computation: ticks(FAST_READ_INTERVAL / 2),
+        constraint: ticks(FAST_READ_INTERVAL),
         preemptible: 1,
     };
     // SAFETY: `policy` is a filled-in struct of the flavor named.
@@ -473,6 +584,21 @@ fn process_exists(pid: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fork_in_a_watched_process_ends_the_wait() {
+        let mut shell = Command::new("/bin/sh")
+            .args(["-c", "sleep 0.2; /usr/bin/true; sleep 1"])
+            .spawn()
+            .expect("spawn");
+        let waker = Waker::new().expect("kqueue");
+        waker.watch(shell.id() as i32);
+        let waited = Instant::now();
+        let woken = waker.wait(Duration::from_secs(5));
+        shell.kill().expect("kill");
+        shell.wait().expect("wait");
+        assert!(woken && waited.elapsed() < Duration::from_secs(1));
+    }
 
     #[test]
     fn a_saved_environment_reads_back_exactly() {
