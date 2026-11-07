@@ -20,7 +20,7 @@
 
 use self::event::{Event, Message};
 use self::tracker::{Clock, TraceSink, Tracker};
-use crate::blind_spots::BlindSpots;
+use crate::blind_spots::{self, BlindSpots};
 use crate::compiler::Capture;
 use crate::perfetto::Writer;
 use crate::report;
@@ -366,16 +366,21 @@ pub fn record(
         woken = waker.wait(interval);
     }
     collector.flush(&mut handle)?;
-    match collector.unnamed {
-        0 => {}
-        1 => note!(
-            "1 process ended before its command line could be read; it is named after its \
-             program alone"
-        ),
-        n => note!(
-            "{n} processes ended before their command line could be read; they are named after \
-             their program alone"
-        ),
+    if collector.unnamed > 0 {
+        match collector.unnamed {
+            1 => note!(
+                "1 process ended before its command line could be read; it is named after its \
+                 program alone"
+            ),
+            n => note!(
+                "{n} processes ended before their command line could be read; they are named \
+                 after their program alone"
+            ),
+        }
+        blind_spots::see(
+            "unnamed-processes",
+            "why some processes are named after their program",
+        );
     }
     if collector.dropped > 0 {
         let times = match collector.dropped {
@@ -386,6 +391,7 @@ pub fn record(
             "the kernel dropped events {times} while the build ran; the trace may be missing \
              processes or files"
         );
+        blind_spots::see("dropped-events", "why the kernel drops events");
     }
     let exit_code = tracker.root_exit_code();
     tracker.finish()?;

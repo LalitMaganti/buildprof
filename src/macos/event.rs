@@ -36,6 +36,8 @@ pub enum Event {
         path: String,
         flags: u64,
         fd: i32,
+        /// `path` could not be placed. It is the path the kernel reported.
+        unresolved: bool,
     },
     Rename {
         from: String,

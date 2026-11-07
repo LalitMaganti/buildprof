@@ -9,9 +9,18 @@ use crate::report;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Stable short links, redirected by the site to the README's troubleshooting
-/// sections, so binaries already installed survive README edits.
+/// Stable short links that the site redirects to sections of the docs. Binaries
+/// already installed keep working when the docs change.
 pub const DIAGNOSE_URL: &str = "https://buildprof.lalitm.com/diagnose/";
+
+/// Points at the docs section on `topic`, saying what the reader will find
+/// there.
+pub fn see(topic: &str, about: &str) {
+    hint!(
+        "{about}: {}",
+        report::emph(format_args!("{DIAGNOSE_URL}{topic}"))
+    );
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum BlindSpot {
@@ -52,10 +61,8 @@ impl BlindSpots {
                     report::emph("podman info")
                 ),
             }
-            hint!(
-                "see {}",
-                report::emph(format_args!("{DIAGNOSE_URL}{}", topic(*spot)))
-            );
+            let (topic, about) = topic(*spot);
+            see(topic, about);
         }
     }
 
@@ -64,17 +71,18 @@ impl BlindSpots {
     pub fn findings(&self) -> Vec<(&'static str, String)> {
         self.seen
             .iter()
-            .map(|(spot, program)| (topic(*spot), program.clone()))
+            .map(|(spot, program)| (topic(*spot).0, program.clone()))
             .collect()
     }
 }
 
 /// The short link the site redirects to the page explaining a blind spot.
-fn topic(spot: BlindSpot) -> &'static str {
+/// The docs section on a blind spot, and what it tells the reader.
+fn topic(spot: BlindSpot) -> (&'static str, &'static str) {
     match spot {
-        BlindSpot::Container => "containers",
-        BlindSpot::Daemon => "daemons",
-        BlindSpot::PodmanUserNamespace => "podman",
+        BlindSpot::Container => ("containers", "how to record work inside containers"),
+        BlindSpot::Daemon => ("daemons", "how to record builds that use a daemon"),
+        BlindSpot::PodmanUserNamespace => ("podman", "how to set up Podman for recording"),
     }
 }
 
