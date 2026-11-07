@@ -8,7 +8,9 @@ refer to live in `EXAMPLES` in `src/args.rs` and in the homepage overlay.
 Requirements, checked by `infra/buildprof.lalitm.com/assemble-site` in CI:
 
 - recorded with the Buildprof version being released (the UI and CLI are in
-  lockstep before 1.0), so it is a zstd stream carrying a version attribute;
+  lockstep before 1.0), or with an earlier version that the UI lists in
+  `READS_RECORDINGS_FROM`, so it opens without a version warning. Either way
+  it is a zstd stream carrying a version attribute;
 - under 25 MiB, Cloudflare Pages' per-asset limit; recordings compress 10x
   to 20x, so this fits builds of tens of thousands of processes.
 
