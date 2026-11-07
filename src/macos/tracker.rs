@@ -6,7 +6,7 @@
 
 use super::event::{Event, Message};
 use crate::blind_spots::BlindSpots;
-use crate::compiler::Capture;
+use crate::compiler::{self, Capture};
 use crate::model::{FileOpen, Process, Rename, Segment, exit_code};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
@@ -141,6 +141,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
                 command,
                 cwd,
                 exit_code: None,
+                compiler_wrapper: false,
             },
         };
         Self {
@@ -261,6 +262,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
                     command,
                     cwd,
                     exit_code: None,
+                    compiler_wrapper: false,
                 },
             },
         );
@@ -286,6 +288,12 @@ impl<'a, S: Sink> Tracker<'a, S> {
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| format!("pid:{pid}"));
+        // Buildprof's compiler wrappers are named after the compiler they
+        // stand in for.
+        let wrapped =
+            compiler::wrapped_compiler(&argv, || compiler::is_buildprof(Path::new(&executable)));
+        let compiler_wrapper = wrapped.is_some();
+        let name = wrapped.unwrap_or(name);
         let command = argv.join(" ");
         let Some(state) = self.processes.get_mut(&pid) else {
             return Ok(());
@@ -300,6 +308,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
                     command,
                     cwd,
                     exit_code: None,
+                    compiler_wrapper,
                 },
             );
             previous.end_at(timestamp_ns);
@@ -310,6 +319,7 @@ impl<'a, S: Sink> Tracker<'a, S> {
             state.segment.name = name;
             state.segment.command = command;
             state.segment.cwd = cwd;
+            state.segment.compiler_wrapper = compiler_wrapper;
         }
         Ok(())
     }

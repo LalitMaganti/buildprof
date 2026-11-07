@@ -149,6 +149,9 @@ impl Writer {
                     args.parent_pid(process.parent_pid)?;
                     args.build_parent_pid(process.build_parent_pid)?;
                     args.execed(process.execed)?;
+                    if segment.compiler_wrapper {
+                        args.compiler_wrapper(true)?;
+                    }
                     if let Some(exit_code) = segment.exit_code {
                         args.exit_code(exit_code)?;
                     }

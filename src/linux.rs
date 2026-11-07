@@ -3,7 +3,7 @@
 
 use self::{ptrace::*, seccomp::*, tracee::*};
 use crate::blind_spots::BlindSpots;
-use crate::compiler::Capture;
+use crate::compiler::{self, Capture};
 use crate::model::{FileOpen, Process, Rename, Segment, exit_code};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
@@ -106,6 +106,7 @@ pub fn record(
                     command: initial_command,
                     cwd: initial_cwd,
                     exit_code: None,
+                    compiler_wrapper: false,
                 }),
             },
         )]),
@@ -364,6 +365,13 @@ impl Tracer<'_> {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| format!("pid:{tid}"));
         let cwd = read_cwd(tid).unwrap_or_default();
+        // Buildprof's compiler wrappers are named after the compiler they
+        // stand in for.
+        let wrapped = compiler::wrapped_compiler(&argv, || {
+            compiler::is_buildprof(Path::new(&format!("/proc/{tid}/exe")))
+        });
+        let compiler_wrapper = wrapped.is_some();
+        let name = wrapped.unwrap_or(name);
 
         // Exec and the parent's fork event may be observed out of order.
         if !self.processes.contains_key(&tgid) {
@@ -384,6 +392,7 @@ impl Tracer<'_> {
                 command,
                 cwd,
                 exit_code: None,
+                compiler_wrapper,
             });
         } else {
             state.process.execed = true;
@@ -391,6 +400,7 @@ impl Tracer<'_> {
                 initial.name = name;
                 initial.command = command;
                 initial.cwd = cwd;
+                initial.compiler_wrapper = compiler_wrapper;
             }
         }
         Ok(())
@@ -419,6 +429,7 @@ impl Tracer<'_> {
                     command: String::new(),
                     cwd: String::new(),
                     exit_code: None,
+                    compiler_wrapper: false,
                 }),
             },
         );
@@ -463,6 +474,7 @@ impl Tracer<'_> {
                     command,
                     cwd,
                     exit_code: None,
+                    compiler_wrapper: false,
                 }),
             },
         );
