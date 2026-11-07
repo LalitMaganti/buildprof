@@ -6,11 +6,13 @@
 
 use super::event::{Event, Message};
 use crate::blind_spots::BlindSpots;
+use crate::compiler::Capture;
 use crate::model::{FileOpen, Process, Rename, Segment, exit_code};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::path::Path;
+use std::time::SystemTime;
 
 /// The raw exit status of a child that `posix_spawn` created but could not
 /// exec. `posix_spawnp` tries each `PATH` directory in turn, so one spawn can
@@ -23,11 +25,14 @@ pub trait Sink {
     fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()>;
     fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()>;
     fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()>;
+    /// A process ended. Import any compiler profile it left behind.
+    fn process_exited(&mut self, pid: i32, segment_start_ns: u64);
 }
 
-/// The trace being recorded.
+/// The trace being recorded, with the compiler profiles that feed into it.
 pub struct TraceSink<'a> {
     pub writer: &'a mut Writer,
+    pub compilers: &'a mut Capture,
 }
 
 impl Sink for TraceSink<'_> {
@@ -43,6 +48,10 @@ impl Sink for TraceSink<'_> {
     fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()> {
         self.writer.rename(pid, rename)
     }
+    fn process_exited(&mut self, pid: i32, segment_start_ns: u64) {
+        self.compilers
+            .process_exited(pid, segment_start_ns, self.writer);
+    }
 }
 
 /// Converts `mach_absolute_time` ticks to nanoseconds since recording began.
@@ -51,6 +60,8 @@ pub struct Clock {
     pub origin: u64,
     pub numer: u32,
     pub denom: u32,
+    /// When the origin was, on the wall clock.
+    pub origin_wall: SystemTime,
 }
 
 // libc deprecates these in favour of the mach2 crate. Two calls do not justify
@@ -64,6 +75,7 @@ impl Clock {
             origin: mach_now(),
             numer: timebase.numer.max(1),
             denom: timebase.denom.max(1),
+            origin_wall: SystemTime::now(),
         }
     }
 
@@ -305,7 +317,9 @@ impl<'a, S: Sink> Tracker<'a, S> {
         state.segment.end_at(timestamp_ns);
         state.segment.exit_code = Some(exit_code);
         announce(self.sink, &mut self.announced, pid)?;
-        self.sink.segment(state.process, &state.segment)
+        self.sink.segment(state.process, &state.segment)?;
+        self.sink.process_exited(pid, state.segment.start_ns);
+        Ok(())
     }
 }
 
@@ -355,6 +369,9 @@ mod tests {
                 .push(format!("rename {pid} {} -> {}", rename.from, rename.to));
             Ok(())
         }
+        fn process_exited(&mut self, pid: i32, segment_start_ns: u64) {
+            self.0.push(format!("exited {pid} {segment_start_ns}"));
+        }
     }
 
     fn clock() -> Clock {
@@ -362,6 +379,7 @@ mod tests {
             origin: 1000,
             numer: 1,
             denom: 1,
+            origin_wall: SystemTime::UNIX_EPOCH,
         }
     }
 
@@ -435,10 +453,13 @@ mod tests {
                 "start 12",
                 "open 12 30 /src/a.o flags=1101",
                 r#"segment 12 parent=10 build_parent=10 execed=true 15..40 "cc -c a.c" cwd=/src exit=Some(0)"#,
+                "exited 12 15",
                 "start 11",
                 r#"segment 11 parent=10 build_parent=10 execed=true 10..50 "sh -c true" cwd=/src exit=Some(2)"#,
+                "exited 11 10",
                 "start 10",
                 r#"segment 10 parent=0 build_parent=0 execed=true 0..60 "make -j2" cwd=/src exit=Some(0)"#,
+                "exited 10 0",
             ]
         );
     }
@@ -461,6 +482,8 @@ mod tests {
             [
                 r#"segment 10 parent=0 build_parent=0 execed=true 0..5 "sh -c exec cc" cwd=/ exit=None"#,
                 r#"segment 10 parent=0 build_parent=0 execed=true 5..9 "cc" cwd=/ exit=Some(137)"#,
+                // Profiles are matched to the program that last ran in the pid.
+                "exited 10 5",
             ]
         );
     }
@@ -493,6 +516,7 @@ mod tests {
             origin: 100,
             numer: 125,
             denom: 3,
+            origin_wall: SystemTime::UNIX_EPOCH,
         };
         assert_eq!(clock.ns(103), 125);
         assert_eq!(clock.ns(50), 0, "events before the origin clamp to it");
