@@ -605,17 +605,34 @@ mod tests {
 
     #[test]
     fn a_fork_in_a_watched_process_ends_the_wait() {
+        use std::io::{BufRead, BufReader};
+        // The shell says when it is running, then forks once told to. Under a
+        // busy test run it can take over a second to start.
         let mut shell = Command::new("/bin/sh")
-            .args(["-c", "sleep 0.2; /usr/bin/true; sleep 1"])
+            .args(["-c", "echo ready; read line; /usr/bin/true; sleep 5"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
             .spawn()
             .expect("spawn");
         let waker = Waker::new().expect("kqueue");
         waker.watch(shell.id() as i32);
+        let mut ready = String::new();
+        BufReader::new(shell.stdout.take().expect("stdout"))
+            .read_line(&mut ready)
+            .expect("ready");
+        // Clear the events from the shell starting.
+        while waker.wait(Duration::ZERO) {}
+        writeln!(shell.stdin.as_mut().expect("stdin")).expect("go");
         let waited = Instant::now();
-        let woken = waker.wait(Duration::from_secs(5));
+        let woken = waker.wait(Duration::from_secs(4));
+        let took = waited.elapsed();
         shell.kill().expect("kill");
         shell.wait().expect("wait");
-        assert!(woken && waited.elapsed() < Duration::from_secs(1));
+        // Woken by the fork, long before the shell would exit.
+        assert!(
+            woken && took < Duration::from_secs(4),
+            "woken={woken} after {took:?}"
+        );
     }
 
     #[test]
