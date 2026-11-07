@@ -56,6 +56,14 @@ class Rename:
     pid: int
 
 
+@dataclass(frozen=True)
+class PathChange:
+    kind: str  # "delete" or "touch"
+    path: str
+    timestamp_ns: int
+    pid: int
+
+
 @dataclass
 class Process:
     pid: int
@@ -178,6 +186,36 @@ def load_file_opens(path: Path) -> list[FileOpen]:
             pid=int(row.pid),
             flags=int(row.flags),
             fd=int(row.fd),
+        )
+        for row in rows
+    ]
+
+
+def load_path_changes(path: Path) -> list[PathChange]:
+    processor = open_trace(path)
+    try:
+        rows = list(
+            processor.query(
+                """
+                select
+                  s.ts,
+                  s.name as kind,
+                  extract_arg(s.arg_set_id, 'debug.path') as path,
+                  extract_arg(s.arg_set_id, 'debug.owner_pid') as pid
+                from slice s
+                where s.category in ('buildprof.delete', 'buildprof.touch')
+                order by s.ts
+                """
+            )
+        )
+    finally:
+        processor.close()
+    return [
+        PathChange(
+            kind=str(row.kind),
+            path=str(row.path),
+            timestamp_ns=int(row.ts),
+            pid=int(row.pid),
         )
         for row in rows
     ]

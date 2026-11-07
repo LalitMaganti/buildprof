@@ -17,6 +17,7 @@
 use super::event::{Event, Message, linux_open_flags};
 use super::kdebug;
 use super::tracker::Clock;
+use crate::model::PathChangeKind;
 use std::collections::{HashMap, HashSet};
 use std::io;
 
@@ -41,6 +42,16 @@ const OPENAT_DPROTECTED: u32 = 0x040c_0368;
 const RENAME: u32 = 0x040c_0200;
 const RENAMEAT: u32 = 0x040c_0744;
 const RENAMEATX: u32 = 0x040c_07a0;
+// Deletes and timestamp changes. libc's utimensat and futimens are built on
+// setattrlistat and fsetattrlist; their attribute list is not logged, so any
+// attribute change counts as a touch.
+const UNLINK: u32 = 0x040c_0028;
+const UNLINKAT: u32 = 0x040c_0760;
+const UTIMES: u32 = 0x040c_0228;
+const FUTIMES: u32 = 0x040c_022c;
+const SETATTRLIST: u32 = 0x040c_0374;
+const FSETATTRLIST: u32 = 0x040c_0394;
+const SETATTRLISTAT: u32 = 0x040c_0830;
 const CHDIR: u32 = 0x040c_0030;
 const FCHDIR: u32 = 0x040c_0034;
 const CLOSE: u32 = 0x040c_0018;
@@ -52,6 +63,7 @@ const FCNTL: u32 = 0x040c_0170;
 const FCNTL_NOCANCEL: u32 = 0x040c_0658;
 
 const AT_FDCWD: i32 = -2;
+const AT_REMOVEDIR: u64 = 0x0080;
 const O_CLOEXEC: u64 = 0x0100_0000;
 const O_DIRECTORY: u64 = 0x0010_0000;
 const O_CREAT: u64 = 0x0200;
@@ -822,6 +834,52 @@ impl Collector {
                     })?;
                 }
             }
+            UNLINK | UNLINKAT | UTIMES | SETATTRLIST | SETATTRLISTAT => {
+                // unlinkat(dirfd, path, flags): removing a directory is not a
+                // file the build could depend on.
+                if !self.file_events || (code == UNLINKAT && call.args[2] & AT_REMOVEDIR != 0) {
+                    return Ok(());
+                }
+                let Some((vnode, raw)) = call.lookups.first().cloned() else {
+                    return Ok(());
+                };
+                let at = matches!(code, UNLINKAT | SETATTRLISTAT);
+                let directory = at.then(|| call.args[0]).filter(|fd| *fd as i32 != AT_FDCWD);
+                // A deleted file is gone by now, so a joined path is confirmed
+                // by its directory, as for a file being created.
+                let path = match self.resolve(pid, vnode, &raw, directory, false) {
+                    Some((path, false)) => path,
+                    Some((path, true)) if self.confirms(&path, true) => path,
+                    _ => return Ok(()),
+                };
+                let kind = if matches!(code, UNLINK | UNLINKAT) {
+                    PathChangeKind::Delete
+                } else {
+                    PathChangeKind::Touch
+                };
+                out(Message {
+                    mach_time,
+                    pid,
+                    ppid: 0,
+                    event: Event::PathChange { kind, path },
+                })?;
+            }
+            FUTIMES | FSETATTRLIST => {
+                if !self.file_events {
+                    return Ok(());
+                }
+                if let Some(path) = self.fd_path(pid, call.args[0]) {
+                    out(Message {
+                        mach_time,
+                        pid,
+                        ppid: 0,
+                        event: Event::PathChange {
+                            kind: PathChangeKind::Touch,
+                            path,
+                        },
+                    })?;
+                }
+            }
             CHDIR => {
                 if let Some((vnode, raw)) = call.lookups.first().cloned() {
                     let resolved = self
@@ -983,6 +1041,13 @@ fn is_followed(code: u32) -> bool {
             RENAME
                 | RENAMEAT
                 | RENAMEATX
+                | UNLINK
+                | UNLINKAT
+                | UTIMES
+                | FUTIMES
+                | SETATTRLIST
+                | FSETATTRLIST
+                | SETATTRLISTAT
                 | CHDIR
                 | FCHDIR
                 | CLOSE
@@ -1471,6 +1536,62 @@ mod tests {
     }
 
     #[test]
+    fn reports_deletes_and_touches() {
+        let mut stream = Stream::new();
+        stream
+            // unlink("old.o")
+            .push(10, UNLINK | 1, [0, 0, 0, 0])
+            .lookup(10, 0x1111, "old.o")
+            .push(10, UNLINK | 2, [0, 0, 0, 0])
+            // utimensat(AT_FDCWD, "stamp", ...), which libc makes setattrlistat
+            .push(10, SETATTRLISTAT | 1, [AT_FDCWD as u64, 0, 0, 0])
+            .lookup(10, 0x2222, "stamp")
+            .push(10, SETATTRLISTAT | 2, [0, 0, 0, 0])
+            // futimens on a descriptor opened earlier
+            .push(10, OPEN | 1, [0, 0, 0, 0])
+            .lookup(10, 0x3333, "held.h")
+            .push(10, OPEN | 2, [0, 5, 0, 0])
+            .push(10, FUTIMES | 1, [5, 0, 0, 0])
+            .push(10, FUTIMES | 2, [0, 0, 0, 0]);
+        let changes: Vec<_> = stream
+            .collect(&mut collector())
+            .into_iter()
+            .filter_map(|message| match message.event {
+                Event::PathChange { kind, path } => Some((kind, path)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            changes,
+            [
+                (PathChangeKind::Delete, "/src/old.o".to_owned()),
+                (PathChangeKind::Touch, "/src/stamp".to_owned()),
+                (PathChangeKind::Touch, "/src/held.h".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_failed_delete_and_a_removed_directory_are_not_reported() {
+        let mut stream = Stream::new();
+        stream
+            // unlink("missing.o") failing with ENOENT
+            .push(10, UNLINK | 1, [0, 0, 0, 0])
+            .lookup(10, 0x1111, "missing.o")
+            .push(10, UNLINK | 2, [2, 0, 0, 0])
+            // unlinkat(AT_FDCWD, "objdir", AT_REMOVEDIR)
+            .push(10, UNLINKAT | 1, [AT_FDCWD as u64, 0, AT_REMOVEDIR, 0])
+            .lookup(10, 0x2222, "objdir")
+            .push(10, UNLINKAT | 2, [0, 0, 0, 0]);
+        assert!(
+            stream
+                .collect(&mut collector())
+                .iter()
+                .all(|message| !matches!(message.event, Event::PathChange { .. }))
+        );
+    }
+
+    #[test]
     fn a_new_process_inherits_and_is_reported() {
         let mut stream = Stream::new();
         stream
@@ -1740,6 +1861,7 @@ mod tests {
                 Event::Open { path, .. } => format!("{} open {path}", message.pid),
                 Event::Exit { .. } => format!("{} exit", message.pid),
                 Event::Rename { .. } => format!("{} rename", message.pid),
+                Event::PathChange { kind, .. } => format!("{} {kind:?}", message.pid),
             })
             .collect();
         assert_eq!(

@@ -7,7 +7,7 @@
 use super::event::{Event, Message};
 use crate::blind_spots::BlindSpots;
 use crate::compiler::{self, Capture};
-use crate::model::{FileOpen, Process, Rename, Segment, exit_code};
+use crate::model::{FileOpen, PathChange, Process, Rename, Segment, exit_code};
 use crate::perfetto::Writer;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -25,6 +25,7 @@ pub trait Sink {
     fn segment(&mut self, process: Process, segment: &Segment) -> io::Result<()>;
     fn file_open(&mut self, pid: i32, open: &FileOpen) -> io::Result<()>;
     fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()>;
+    fn path_change(&mut self, pid: i32, change: &PathChange) -> io::Result<()>;
     /// A process ended. Import any compiler profile it left behind.
     fn process_exited(&mut self, pid: i32, segment_start_ns: u64);
 }
@@ -47,6 +48,9 @@ impl Sink for TraceSink<'_> {
     }
     fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()> {
         self.writer.rename(pid, rename)
+    }
+    fn path_change(&mut self, pid: i32, change: &PathChange) -> io::Result<()> {
+        self.writer.path_change(pid, change)
     }
     fn process_exited(&mut self, pid: i32, segment_start_ns: u64) {
         self.compilers
@@ -215,6 +219,17 @@ impl<'a, S: Sink> Tracker<'a, S> {
                         timestamp_ns,
                         from,
                         to,
+                    },
+                )?
+            }
+            Event::PathChange { kind, path } => {
+                announce(self.sink, &mut self.announced, pid)?;
+                self.sink.path_change(
+                    pid,
+                    &PathChange {
+                        timestamp_ns,
+                        kind,
+                        path,
                     },
                 )?
             }
@@ -391,6 +406,11 @@ mod tests {
         fn rename(&mut self, pid: i32, rename: &Rename) -> io::Result<()> {
             self.0
                 .push(format!("rename {pid} {} -> {}", rename.from, rename.to));
+            Ok(())
+        }
+        fn path_change(&mut self, pid: i32, change: &PathChange) -> io::Result<()> {
+            self.0
+                .push(format!("{:?} {pid} {}", change.kind, change.path));
             Ok(())
         }
         fn process_exited(&mut self, pid: i32, segment_start_ns: u64) {

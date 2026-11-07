@@ -1,7 +1,7 @@
 // Copyright 2026 The Buildprof Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::model::{FileOpen, Process, Rename, Segment};
+use crate::model::{FileOpen, PathChange, PathChangeKind, Process, Rename, Segment};
 use proto::AttributeValue;
 use std::collections::HashMap;
 use std::fs::File;
@@ -28,6 +28,8 @@ const FILE_MERGE_KEY: &str = "buildprof.files";
 const PROCESS_CATEGORY: &str = "buildprof.process";
 const FILE_CATEGORY: &str = "buildprof.file";
 const RENAME_CATEGORY: &str = "buildprof.rename";
+const DELETE_CATEGORY: &str = "buildprof.delete";
+const TOUCH_CATEGORY: &str = "buildprof.touch";
 const COMPILER_CATEGORY: &str = "buildprof.compiler";
 const TRACK_UUID_PID_SHIFT: u32 = 2;
 const PROCESS_TRACK_DISCRIMINATOR: u64 = 1;
@@ -212,6 +214,25 @@ impl Writer {
                 },
             )
         }
+    }
+
+    pub fn path_change(&mut self, pid: i32, change: &PathChange) -> io::Result<()> {
+        let (category, name) = match change.kind {
+            PathChangeKind::Delete => (DELETE_CATEGORY, "delete"),
+            PathChangeKind::Touch => (TOUCH_CATEGORY, "touch"),
+        };
+        self.write_event(
+            change.timestamp_ns,
+            proto::TYPE_INSTANT,
+            file_track_uuid(pid),
+            Some(category),
+            Some(name),
+            None,
+            &mut |args| {
+                args.path(&change.path)?;
+                args.owner_pid(pid)
+            },
+        )
     }
 
     pub fn compiler_track(&mut self, pid: i32, thread_id: u32, backend: &str) -> io::Result<()> {

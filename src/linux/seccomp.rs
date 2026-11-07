@@ -3,6 +3,7 @@
 
 //! Seccomp filter used to turn selected filesystem calls into ptrace events.
 
+use crate::model::PathChangeKind;
 use std::io;
 
 const SET_MODE_FILTER: libc::c_uint = 1;
@@ -49,12 +50,47 @@ fn traced_syscalls() -> Vec<libc::c_long> {
         // Track artifacts moved into their final paths.
         libc::SYS_renameat,
         libc::SYS_renameat2,
+        // Deletes and timestamp changes decide what the next build reruns.
+        libc::SYS_unlinkat,
+        libc::SYS_utimensat,
     ];
     // These older syscalls are absent on architectures such as aarch64.
     // musl still uses open on x86_64, including inside Alpine containers.
     #[cfg(target_arch = "x86_64")]
-    syscalls.extend([libc::SYS_open, libc::SYS_rename]);
+    syscalls.extend([
+        libc::SYS_open,
+        libc::SYS_rename,
+        libc::SYS_unlink,
+        libc::SYS_utimes,
+        libc::SYS_utime,
+        libc::SYS_futimesat,
+    ]);
     syscalls
+}
+
+/// Where a delete or timestamp change finds its path among the arguments.
+pub(super) enum PathArgs {
+    /// The path is the first argument, relative to the working directory.
+    Bare,
+    /// The arguments start (dirfd, path); a null path means dirfd itself.
+    At,
+}
+
+pub(super) fn path_change(nr: libc::c_long) -> Option<(PathChangeKind, PathArgs)> {
+    #[cfg(target_arch = "x86_64")]
+    match nr {
+        libc::SYS_unlink => return Some((PathChangeKind::Delete, PathArgs::Bare)),
+        libc::SYS_utimes | libc::SYS_utime => {
+            return Some((PathChangeKind::Touch, PathArgs::Bare));
+        }
+        libc::SYS_futimesat => return Some((PathChangeKind::Touch, PathArgs::At)),
+        _ => {}
+    }
+    match nr {
+        libc::SYS_unlinkat => Some((PathChangeKind::Delete, PathArgs::At)),
+        libc::SYS_utimensat => Some((PathChangeKind::Touch, PathArgs::At)),
+        _ => None,
+    }
 }
 
 pub(super) fn is_bare_open(nr: libc::c_long) -> bool {
