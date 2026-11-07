@@ -7,19 +7,82 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-### Added
+## [0.3.0] - 2026-11-07
 
-- `buildprof open` accepts a URL. GitHub Actions artifact URLs are downloaded
-  with the GitHub CLI and other URLs with `curl`, then served like a local
-  recording. The GitHub Action's job summary now prints this command.
+0.3.0 records builds on macOS. Put `buildprof --` in front of your build
+command on a Mac and you get the same timeline as on Linux: every process, its
+command line, the files it read and wrote, and with `--compiler-traces`, what
+happened inside the compilers. This release also opens recordings straight
+from a URL, traces Clang however the build runs it, and marks a recording that
+may be missing work.
 
-### Fixed
+Recordings gained new fields, so this is a minor release. Recordings from
+0.2 open in the 0.3 UI without a version warning; the status bar still says
+which version made them.
 
-- `--compiler-traces` now records Clang phases when the build runs Clang by
-  path, as GN and many CMake toolchains do. It previously only saw Clang
-  invoked by name through `PATH`. A compile's own `-ftime-trace` now keeps its
-  trace where it asked for it, and ccache hits are no longer turned into
-  misses for Clang.
+### Highlights
+
+**Record builds on macOS.** Buildprof follows the build through the macOS
+kernel trace facility, the one Instruments uses. Turning it on needs root, so
+Buildprof asks for your password through `sudo` and gives root up before your
+build starts. Your build runs as you, with your own environment. The
+[root policy](https://github.com/LalitMaganti/buildprof/blob/main/docs/root-policy.md) says exactly what runs as root. Recording
+needs macOS 13 or newer. ([#34](https://github.com/LalitMaganti/buildprof/pull/34), [#28](https://github.com/LalitMaganti/buildprof/pull/28), [#29](https://github.com/LalitMaganti/buildprof/pull/29), [#30](https://github.com/LalitMaganti/buildprof/pull/30), [#31](https://github.com/LalitMaganti/buildprof/pull/31), [#24](https://github.com/LalitMaganti/buildprof/pull/24), [#49](https://github.com/LalitMaganti/buildprof/pull/49))
+
+**Open a recording from a URL.** `buildprof open <url>` downloads a recording
+and opens it. A GitHub Actions artifact URL is fetched with the GitHub CLI,
+using your GitHub login, and any other URL with `curl`. The
+GitHub Action's job summary prints the command for each recording.
+([#52](https://github.com/LalitMaganti/buildprof/pull/52))
+
+**Compiler traces for Clang, however it is run.** `--compiler-traces` now
+records Clang's phases when the build runs Clang by path, as GN and many CMake
+toolchains do. Before, only a Clang found by name on `PATH` was traced.
+([#55](https://github.com/LalitMaganti/buildprof/pull/55))
+
+**See when a recording may be incomplete.** When a build hands work to
+something Buildprof cannot follow, such as a Docker or Bazel daemon, the
+recording now says so. The UI shows "Recording may be incomplete" in the
+status bar, with a link explaining each case. Before, only the terminal
+mentioned it, so anyone opening the recording later could not tell.
+([#51](https://github.com/LalitMaganti/buildprof/pull/51))
+
+### Things to know on macOS
+
+- Run Buildprof as yourself. It asks `sudo` for root when it needs it, and
+  stops if you run it with `sudo` or as root, so that it can keep your
+  environment. ([#34](https://github.com/LalitMaganti/buildprof/pull/34))
+- Some files read through relative symbolic links, mostly SDK files, show up
+  as `<unknown>/…` rather than at a guessed location. ([#49](https://github.com/LalitMaganti/buildprof/pull/49))
+- A very short command, such as `pwd` or `mkdir`, can be named after its
+  program alone, without its arguments, when it exits before Buildprof reads
+  them. On a clean build of Git, that was none to two of about 3,200
+  processes. ([#28](https://github.com/LalitMaganti/buildprof/pull/28))
+- The [data loss page](https://github.com/LalitMaganti/buildprof/blob/main/docs/data-loss.md) lists everything a recording can
+  miss, on Linux and macOS, and how you can tell.
+
+### Other changes
+
+- With `--compiler-traces`, a compile that asks for its own `-ftime-trace`
+  keeps its trace where it asked for it, and ccache hits are no longer turned
+  into misses for Clang. ([#55](https://github.com/LalitMaganti/buildprof/pull/55))
+- With `--compiler-traces`, the step that runs before each compiler is named
+  after the compiler, such as `rustc` or `clang`, instead of
+  `buildprof-rustc-wrapper`. ([#58](https://github.com/LalitMaganti/buildprof/pull/58))
+- The UI moves to a newer Perfetto, which includes everything in its v59.1
+  release. In the search box, Enter now jumps straight to the first match. ([#56](https://github.com/LalitMaganti/buildprof/pull/56))
+- buildprof.lalitm.com hosts recordings of a no-op Node.js build, before and
+  after the fixes proposed upstream. ([#53](https://github.com/LalitMaganti/buildprof/pull/53))
+
+### Changes for trace readers
+
+New fields, all optional, so older readers can ignore them:
+
+- `buildprof.data_loss.<kind>` trace attributes, naming each kind of work the
+  recording may be missing and the program that showed it. ([#51](https://github.com/LalitMaganti/buildprof/pull/51))
+- `path_unresolved` on a file open whose location is unknown. ([#49](https://github.com/LalitMaganti/buildprof/pull/49))
+- `compiler_wrapper` on a process step run by one of Buildprof's compiler
+  wrappers. ([#58](https://github.com/LalitMaganti/buildprof/pull/58))
 
 ## [0.2.8] - 2026-10-17
 
