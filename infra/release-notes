@@ -23,9 +23,9 @@ TAGLINE = (
 INSTALL = """\
 ### Install
 
-Recording requires Linux. Existing recordings can be viewed on other
-platforms in the web UI without installing Buildprof. Install on your Linux
-build machine using whichever method you prefer:
+Recording requires Linux or macOS. Existing recordings can be viewed on any
+platform in the web UI without installing Buildprof. Install on the machine
+that runs your build using whichever method you prefer:
 
 **Shell script**
 
