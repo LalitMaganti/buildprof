@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: buildprof-perfetto <buildprof-perfetto@localhost>
+Date: Tue, 20 Oct 2026 22:20:58 -0700
+Subject: ui: let a tab opt out of its close button
+
+---
+ ui/src/core_plugins/dev.perfetto.Timeline/tab_panel.ts | 2 +-
+ ui/src/public/tab.ts                                   | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/ui/src/core_plugins/dev.perfetto.Timeline/tab_panel.ts b/ui/src/core_plugins/dev.perfetto.Timeline/tab_panel.ts
+index 1f13a1a21a..9818ba7046 100644
+--- a/ui/src/core_plugins/dev.perfetto.Timeline/tab_panel.ts
++++ b/ui/src/core_plugins/dev.perfetto.Timeline/tab_panel.ts
+@@ -45,7 +45,7 @@ export class TabPanel implements m.ClassComponent<TabPanelAttrs> {
+         key: uri,
+         title: tab?.content.getTitle() ?? 'Tab does not exist',
+         content: tab?.content.render(),
+-        closable: true,
++        closable: tab?.closable ?? true,
+       })),
+     ];
+ 
+diff --git a/ui/src/public/tab.ts b/ui/src/public/tab.ts
+index 382b5ab06d..42c0a28be7 100644
+--- a/ui/src/public/tab.ts
++++ b/ui/src/public/tab.ts
+@@ -30,6 +30,7 @@ export interface TabDescriptor {
+   uri: string; // TODO(stevegolton): Maybe optional for ephemeral tabs.
+   content: Tab;
+   isEphemeral?: boolean; // Defaults false
++  closable?: boolean; // Defaults true
+   onHide?(): void;
+   onShow?(): void;
+ }
