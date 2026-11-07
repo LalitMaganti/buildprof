@@ -18,7 +18,7 @@ publish-jobs = ["homebrew"]
 # what triggers the UI deploy, the crates.io publish, and the Linux packages
 # (a release published by GITHUB_TOKEN would not trigger them).
 allow-dirty = ["ci"]
-# Recording is Linux-only; macOS builds exist for `buildprof open`.
+# Recording works on Linux and macOS; other platforms can view recordings.
 targets = [
     "x86_64-unknown-linux-gnu",
     "aarch64-unknown-linux-gnu",

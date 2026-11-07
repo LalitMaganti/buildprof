@@ -11,7 +11,7 @@ use std::path::Path;
 
 /// Stable short links, redirected by the site to the README's troubleshooting
 /// sections, so binaries already installed survive README edits.
-const DIAGNOSE_URL: &str = "https://buildprof.lalitm.com/diagnose/";
+pub const DIAGNOSE_URL: &str = "https://buildprof.lalitm.com/diagnose/";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum BlindSpot {

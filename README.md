@@ -22,7 +22,7 @@
 
 ## What is Buildprof?
 
-Buildprof traces **every process** a Linux build launches and turns the
+Buildprof traces **every process** a build launches and turns the
 recording into an **interactive timeline** you can explore in the browser. Put
 `buildprof --` in front of your build command to get started.
 
@@ -38,8 +38,8 @@ recording into an **interactive timeline** you can explore in the browser. Put
   work, as do the shell scripts, code generators and wrapper scripts they
   launch.
 
-Recording requires Linux. You can explore recordings on any platform in the
-[web UI](https://buildprof.lalitm.com); trace data stays in your browser.
+Recording requires Linux or macOS. You can explore recordings on any platform
+in the [web UI](https://buildprof.lalitm.com); trace data stays in your browser.
 
 ## Try it in your browser
 
@@ -53,7 +53,7 @@ follow the [guided tour](docs/ripgrep-tutorial.md).
 
 ### 1. Install Buildprof
 
-On the Linux machine that runs your build:
+On the machine that runs your build:
 
 ```bash
 curl -fsSL https://buildprof.lalitm.com/install.sh | sh
@@ -128,7 +128,7 @@ land in one timeline, and you can see how their work fits together.
 
 ## Install
 
-Install on your Linux build machine using whichever method you prefer.
+Install on your build machine using whichever method you prefer.
 
 <details>
 <summary>
@@ -182,11 +182,14 @@ musl. The musl build is the one to mount into a container.
 
 ### Requirements
 
-- **Recording needs Linux**, with a kernel and container configuration that
+- **Recording on Linux** needs a kernel and container configuration that
   permits tracing child processes:
   - Docker needs `--cap-add SYS_PTRACE`.
   - `kernel.yama.ptrace_scope` must be below 3.
   - gVisor-style sandboxes cannot trace at all.
+- **Recording on macOS** needs macOS 13 or newer. Buildprof asks for your
+  password through `sudo`, and gives up root before your build starts. The
+  [root policy](docs/root-policy.md) says what runs as root.
 - **Viewing just needs a browser.** Any recording opens in the
   [web UI](https://buildprof.lalitm.com) on any computer, with or without
   Buildprof installed.

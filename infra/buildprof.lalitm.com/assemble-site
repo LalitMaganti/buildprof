@@ -132,6 +132,7 @@ def main() -> int:
         f"/diagnose/containers {troubleshooting}#builds-inside-docker-containers 302\n"
         f"/diagnose/daemons {troubleshooting}#bazel-gradle-and-other-daemon-build-systems 302\n"
         f"/diagnose/podman {troubleshooting}#use-podman 302\n"
+        "/diagnose/root https://github.com/LalitMaganti/buildprof/blob/main/docs/root-policy.md 302\n"
     )
 
     if args.headers is not None:
