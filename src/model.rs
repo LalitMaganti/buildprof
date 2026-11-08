@@ -68,6 +68,21 @@ pub struct Rename {
     pub to: String,
 }
 
+/// A path deleted, or given new timestamps without being opened. Both decide
+/// what make and similar tools rebuild next time.
+#[derive(Debug)]
+pub struct PathChange {
+    pub timestamp_ns: u64,
+    pub kind: PathChangeKind,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathChangeKind {
+    Delete,
+    Touch,
+}
+
 #[derive(Debug)]
 pub struct FileOpen {
     pub timestamp_ns: u64,

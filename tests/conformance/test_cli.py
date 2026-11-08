@@ -12,7 +12,13 @@ import tomllib
 
 import pytest
 
-from .model import load_file_opens, load_perfetto, load_trace_attributes, load_renames
+from .model import (
+    load_file_opens,
+    load_path_changes,
+    load_perfetto,
+    load_renames,
+    load_trace_attributes,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 ZSTD_MAGIC = bytes.fromhex("28b52ffd")
@@ -176,6 +182,30 @@ def test_file_opens_are_recorded_by_default(
     assert all(event.fd >= 0 for event in matching)
 
 
+def test_deletes_and_touches_are_recorded(run_trace, tmp_path: Path):
+    stamp = tmp_path / "stamp"
+    stamp.write_text("")
+    removed = tmp_path / "old.o"
+    removed.write_text("object")
+    directory = tmp_path / "objdir"
+    directory.mkdir()
+    result, trace = run_trace(
+        "sh", "-c", 'touch "$1" && rm "$2" && rmdir "$3"',
+        "sh", str(stamp), str(removed), str(directory),
+    )
+    assert result.returncode == 0, result.stderr
+    assert not removed.exists() and not directory.exists()
+
+    changes = load_path_changes(trace)
+    kinds = {(change.kind, change.path) for change in changes}
+    assert ("touch", str(stamp)) in kinds
+    assert ("delete", str(removed)) in kinds
+    # Removing a directory is not a file the build could depend on.
+    assert not any(change.path == str(directory) for change in changes)
+    pids = set(load_perfetto(trace))
+    assert all(change.pid in pids for change in changes)
+
+
 @pytest.mark.parametrize("file_events", [True, False])
 @pytest.mark.parametrize("flags,exists,exit_code", [
     pytest.param(os.O_RDONLY, True, 0, id="read"),
@@ -235,6 +265,7 @@ def test_no_file_events_preserves_process_tree_and_exit_status(
     assert any("leaf" in seg.command for proc in processes.values() for seg in proc.segments)
     assert load_file_opens(trace) == []
     assert load_renames(trace) == []
+    assert load_path_changes(trace) == []
     assert load_trace_attributes(trace)["buildprof.file_events"] == 0
 
 

@@ -4,6 +4,8 @@
 //! What the collector observed. The tracker turns these into the trace's
 //! process segments and file events.
 
+use crate::model::PathChangeKind;
+
 /// One thing a followed process did.
 #[derive(Debug, PartialEq)]
 pub struct Message {
@@ -42,6 +44,11 @@ pub enum Event {
     Rename {
         from: String,
         to: String,
+    },
+    /// A path deleted, or given new timestamps without being opened.
+    PathChange {
+        kind: PathChangeKind,
+        path: String,
     },
 }
 
