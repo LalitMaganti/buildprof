@@ -41,7 +41,7 @@ on both Linux and macOS. The UI lists these under "Deleted" and "Touched" in
 each process's Files section. This helps explain why a build system re-ran a
 step.
 
-![The rm step of a make build selected, with its Deleted list showing the file it removed and when](https://raw.githubusercontent.com/LalitMaganti/buildprof/main/docs/assets/deleted-files.png)
+![A make build's cleanup step selected, with its Deleted list showing the five files it removed and when](https://raw.githubusercontent.com/LalitMaganti/buildprof/main/docs/assets/deleted-files.png)
 
 ### Open a recording from a URL
 
