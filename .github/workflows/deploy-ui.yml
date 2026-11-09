@@ -5,6 +5,10 @@ name: Deploy Buildprof UI
 # site from every released UI plus the example recordings, deploys it, and
 # only then publishes the crate, so a CLI on crates.io never points at a UI
 # version that is not live.
+#
+# Run it by hand to redeploy without a release, for example to publish new
+# example recordings. Every released version keeps serving its release's own
+# UI; nothing built from the checked-out commit replaces it.
 on:
   release:
     types: [released]
