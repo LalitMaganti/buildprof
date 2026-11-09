@@ -820,6 +820,8 @@ const T = {
   concurrency: "__bt_concurrency",
   tree: "__bt_tree",
   rename: "__bt_rename",
+  /** Paths deleted, or given new timestamps without being opened. */
+  change: "__bt_change",
   /**
    * Producer/consumer edges between processes.
    *
@@ -1032,6 +1034,22 @@ async function materialise(trace: Trace): Promise<number> {
     `,
   });
 
+  // Recordings made before deletes and touches were recorded have none, and
+  // the table is empty.
+  await createPerfettoTable({
+    engine: e,
+    name: T.change,
+    as: `
+      select
+        extract_arg(s.arg_set_id, 'debug.owner_pid') as pid,
+        s.ts - (select start_ts from trace_bounds)   as rel_ts,
+        iif(s.category = 'buildprof.delete', 'delete', 'touch') as kind,
+        extract_arg(s.arg_set_id, 'debug.path')      as path
+      from slice s
+      where s.category in ('buildprof.delete', 'buildprof.touch')
+    `,
+  });
+
   // Index keys used by details, overlay, and dependency queries.
   for (const [table, column] of [
     [T.open, "pid"],
@@ -1040,6 +1058,7 @@ async function materialise(trace: Trace): Promise<number> {
     [T.life, "ppid"],
     [T.life, "slice_id"],
     [T.rename, "from_path"],
+    [T.change, "pid"],
   ] as const) {
     await e.query(
       `create perfetto index ${table}_${column} on ${table}(${column})`,
@@ -1955,6 +1974,16 @@ interface FileUse {
   readonly count: number;
 }
 
+type ChangeKind = "delete" | "touch";
+
+/** A path the process deleted, or gave new timestamps without opening. */
+interface PathChange {
+  readonly kind: ChangeKind;
+  readonly path: string;
+  /** Nanoseconds from the start of the recording. */
+  readonly relTsNs: bigint;
+}
+
 function formatDuration(ns: bigint): string {
   const n = Number(ns);
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)} s`;
@@ -2004,6 +2033,31 @@ const PATH_CHARS = 52;
 function elidePathHead(path: string): string {
   if (path.length <= PATH_CHARS) return path;
   return "\u2026" + path.slice(path.length - PATH_CHARS + 1);
+}
+
+/**
+ * Shorten a path to its directory's name and file name, eliding the middle of
+ * the file name if it is still too long. Generated names such as hashes are
+ * recognised by how they start, which eliding the head would hide.
+ */
+function elideFileName(path: string): string {
+  if (path.length <= PATH_CHARS) return path;
+  const slash = path.lastIndexOf("/");
+  const name = path.slice(slash + 1);
+  const parent = basename(path.slice(0, Math.max(slash, 0)));
+  const short =
+    name.length <= PATH_CHARS
+      ? name
+      : name.slice(0, 16) +
+        "\u2026" +
+        name.slice(name.length - PATH_CHARS + 17);
+  const withParent = `\u2026/${parent}/${short}`;
+  return parent !== "" && withParent.length <= PATH_CHARS ? withParent : short;
+}
+
+/** A moment in the recording, in seconds from its start, to the millisecond. */
+function formatOffset(ns: bigint): string {
+  return `${(Number(ns) / 1e9).toFixed(3)} s`;
 }
 
 /**
@@ -2184,6 +2238,8 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
   private totalOpens = 0;
   private pathCount = 0;
   private readCount = 0;
+  private changes: PathChange[] = [];
+  private changeCounts: Record<ChangeKind, number> = { delete: 0, touch: 0 };
   private producers: DepUse[] = [];
   private consumers: DepUse[] = [];
   private producerCount = 0;
@@ -2212,19 +2268,27 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
       group by path
     `;
 
-    const [segments, childTotals, childTop, fileTotals, fileRows, collection] =
-      await Promise.all([
-        this.querySegments(`pid = ${this.pid}`),
-        e.query(`
+    const [
+      segments,
+      childTotals,
+      childTop,
+      fileTotals,
+      fileRows,
+      collection,
+      changeTotals,
+      changeRows,
+    ] = await Promise.all([
+      this.querySegments(`pid = ${this.pid}`),
+      e.query(`
           select count(*) as cnt, ifnull(sum(dur), 0) as total
           from ${T.life} where ppid = ${this.pid}
         `),
-        e.query(`
+      e.query(`
           select pid, name, dur, slice_id from ${T.life}
           where ppid = ${this.pid}
           order by dur desc limit ${CHILD_ROW_LIMIT}
         `),
-        e.query(`
+      e.query(`
           select
             count(*) as paths,
             ifnull(sum(cnt), 0) as opens,
@@ -2232,17 +2296,31 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
               as reads
           from (${byPath})
         `),
-        e.query(`
+      e.query(`
           select path, write_intent, cnt from (${byPath})
           order by write_intent desc, cnt desc, path
           limit ${FILE_ROW_LIMIT * 3}
         `),
-        e.query(`
+      e.query(`
           select count(*) as disabled
           from metadata
           where name = 'trace_attribute.buildprof.file_events' and int_value = 0
         `),
-      ]);
+      e.query(`
+          select kind, count(*) as cnt from ${T.change}
+          where pid = ${this.pid} group by kind
+        `),
+      // Each kind is listed in time order, up to the row limit.
+      e.query(`
+          select kind, path, rel_ts from (
+            select kind, path, rel_ts,
+                   row_number() over (partition by kind order by rel_ts) as rn
+            from ${T.change} where pid = ${this.pid}
+          )
+          where rn <= ${FILE_ROW_LIMIT}
+          order by rel_ts, path
+        `),
+    ]);
     // Older recordings predate the setting and collected files by default.
     this.fileEvents = collection.firstRow({ disabled: NUM }).disabled === 0;
 
@@ -2282,6 +2360,21 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
         path: it.path,
         writeIntent: it.write_intent !== 0,
         count: it.cnt,
+      });
+    }
+
+    this.changeCounts = { delete: 0, touch: 0 };
+    const kt = changeTotals.iter({ kind: STR, cnt: NUM });
+    for (; kt.valid(); kt.next()) {
+      this.changeCounts[kt.kind as ChangeKind] = kt.cnt;
+    }
+    this.changes = [];
+    const kr = changeRows.iter({ kind: STR, path: STR, rel_ts: LONG });
+    for (; kr.valid(); kr.next()) {
+      this.changes.push({
+        kind: kr.kind as ChangeKind,
+        path: kr.path,
+        relTsNs: kr.rel_ts,
       });
     }
 
@@ -2425,11 +2518,42 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
     );
   }
 
+  /**
+   * Deleted or touched paths, collapsed under their count. They are listed
+   * apart from opens: they are rare, and they are what decide whether make
+   * reruns something next time.
+   */
+  private renderChanges(kind: ChangeKind, title: string): m.Children {
+    const count = this.changeCounts[kind];
+    if (count === 0) return undefined;
+    const rows = this.changes.filter((c) => c.kind === kind);
+    return m(
+      TreeNode,
+      { left: title, right: `${count}`, startsCollapsed: true },
+      ...rows.map((c) =>
+        m(TreeNode, {
+          left: plainLabel(m("span", { title: c.path }, elideFileName(c.path))),
+          right: `at ${formatOffset(c.relTsNs)}`,
+        }),
+      ),
+      count > rows.length
+        ? m(TreeNode, { left: `…and ${count - rows.length} more` })
+        : undefined,
+    );
+  }
+
   private renderFiles(): m.Children {
     const writes = this.pathCount - this.readCount;
     const shown = this.files.slice(0, FILE_ROW_LIMIT);
+    const deleted = this.renderChanges("delete", "Deleted");
+    const touched = this.renderChanges("touch", "Touched");
     if (this.pathCount === 0) {
-      return m(Tree, m(TreeNode, { left: "Opened", right: "nothing" }));
+      return m(
+        Tree,
+        m(TreeNode, { left: "Opened", right: "nothing" }),
+        deleted,
+        touched,
+      );
     }
     return m(
       Tree,
@@ -2437,6 +2561,8 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
       m(TreeNode, { left: "Opens", right: `${this.totalOpens}` }),
       m(TreeNode, { left: "Read", right: `${this.readCount}` }),
       m(TreeNode, { left: "Written", right: `${writes}` }),
+      deleted,
+      touched,
       m(
         TreeNode,
         { left: this.pathCount > shown.length ? "Most opened" : "Files" },
