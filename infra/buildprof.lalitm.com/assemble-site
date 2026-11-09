@@ -78,7 +78,8 @@ def extract(archive: Path, destination: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--current", type=Path, required=True,
-                        help="UI archive built for the release being deployed")
+                        help="UI archive built from this checkout; used only "
+                        "if its version has no published UI yet")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--headers", type=Path,
                         help="Cloudflare Pages _headers file to install")
@@ -97,13 +98,19 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as scratch_name:
         scratch = Path(scratch_name)
         versions: dict[str, Path] = {}
+        # A published version's UI always comes from its release, never from
+        # this checkout: a manual redeploy from main must not replace what
+        # /v<version>/ serves, which links in docs and posts rely on. A
+        # release deploy attaches its UI to the release before assembling,
+        # so the release's own build is the one that is used.
         for version, (tag, asset) in released_ui_assets().items():
-            if version == current_version:
-                continue
             run("gh", "release", "download", tag, "--repo", REPOSITORY,
                 "--pattern", asset, "--dir", scratch, "--clobber")
             versions[version] = scratch / asset
-        versions[current_version] = args.current
+        if current_version in versions:
+            print(f"==> {current_version} is published; using its release UI, not {args.current.name}")
+        else:
+            versions[current_version] = args.current
 
         newest = max(versions, key=version_key)
         for version, archive in sorted(versions.items(), key=lambda item: version_key(item[0])):
