@@ -337,31 +337,25 @@ impl Collector {
                 if args[2] == 1 && parent == Some(pid) {
                     self.new_tasks.insert(child_thread, thread);
                 }
+                // A new process inherits its parent's directory and descriptors.
+                // A thread that a process the build did not start creates in
+                // a build process, as launchd does in ld, leaves that process
+                // as it is. So do the kernel's (pid 0) worker threads. A pid
+                // is only reused after its process exits, and that exit ends
+                // the process here.
                 if let Some(parent) = parent
                     && parent != pid
+                    && let Some(state) = self.processes.get(&parent).cloned()
                 {
-                    match self.processes.get(&parent).cloned() {
-                        // A new process inherits its parent's directory and descriptors.
-                        Some(state) => {
-                            self.started += 1;
-                            self.cancel_exit(pid);
-                            self.processes.insert(pid, state);
-                            out(Message {
-                                mach_time: event.timestamp,
-                                pid: parent,
-                                ppid: 0,
-                                event: Event::Fork { child: pid },
-                            })?;
-                        }
-                        // Another process now has this pid, so stop following
-                        // it. The kernel itself (pid 0) also starts worker
-                        // threads in existing processes. Those are not new
-                        // processes.
-                        None if pid != self.root && parent != 0 => {
-                            self.processes.remove(&pid);
-                        }
-                        None => {}
-                    }
+                    self.started += 1;
+                    self.cancel_exit(pid);
+                    self.processes.insert(pid, state);
+                    out(Message {
+                        mach_time: event.timestamp,
+                        pid: parent,
+                        ppid: 0,
+                        event: Event::Fork { child: pid },
+                    })?;
                 }
                 return Ok(());
             }
@@ -1915,18 +1909,26 @@ mod tests {
     }
 
     #[test]
-    fn a_pid_another_process_reuses_is_no_longer_followed() {
+    fn a_thread_launchd_creates_keeps_its_process() {
+        // As traced on macOS 26: launchd (pid 1) sometimes creates a thread
+        // in ld while it links. ld's later events and exit are still its own.
         let mut collector = collector();
-        collector.seed_threads([(99, 999)]);
+        collector.seed_threads([(99, 1)]);
         let mut stream = Stream::new();
         stream
             .push(10, NEWTHREAD, [11, 200, 0, 0])
             .push(99, NEWTHREAD, [12, 200, 0, 0])
             .push(12, OPEN | 1, [0, 0, 0, 0])
             .lookup(12, 0x6666, "x")
-            .push(12, OPEN | 2, [0, 3, 0, 0]);
+            .push(12, OPEN | 2, [0, 3, 0, 0])
+            .push(11, PROC_EXIT | 2, [200, 0, 0, 0]);
         let messages = stream.collect(&mut collector);
-        assert_eq!(opens(&messages), []);
+        assert_eq!(opens(&messages).len(), 1);
+        assert!(
+            messages
+                .iter()
+                .any(|message| message.pid == 200 && matches!(message.event, Event::Exit { .. }))
+        );
     }
 
     #[test]
