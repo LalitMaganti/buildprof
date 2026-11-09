@@ -887,12 +887,11 @@ function registerAggregationTab(trace: Trace): void {
 // Downstream queries use typed, materialised columns.
 
 const T = {
-  seg: "__bt_segment",
+  seg: "buildprof_segment",
   open: "__bt_open",
   life: "__bt_life",
   leaf: "__bt_leaf",
   layout: "__bt_layout",
-  occupancy: "__bt_occupancy",
   concurrency: "__bt_concurrency",
   tree: "__bt_tree",
   rename: "__bt_rename",
@@ -995,30 +994,9 @@ function ensureEdges(trace: Trace): Promise<void> {
 async function materialise(trace: Trace): Promise<number> {
   const e = trace.engine;
 
-  await createPerfettoTable({
-    engine: e,
-    name: T.seg,
-    as: `
-      select
-        s.id   as slice_id,
-        s.ts   as ts,
-        s.dur  as dur,
-        s.name as tool,
-        extract_arg(s.arg_set_id, 'debug.pid')       as pid,
-        extract_arg(s.arg_set_id, 'debug.ppid')      as ppid,
-        -- The recorder keeps forks that never exec'd, because discarding them
-        -- would be irreversible. They are not build actions though, so the
-        -- timeline hides them and parents their children to the nearest pid
-        -- that did exec.
-        extract_arg(s.arg_set_id, 'debug.build_ppid') as build_ppid,
-        extract_arg(s.arg_set_id, 'debug.execed')     as execed,
-        extract_arg(s.arg_set_id, 'debug.cmd')       as cmd,
-        extract_arg(s.arg_set_id, 'debug.cwd')       as cwd,
-        extract_arg(s.arg_set_id, 'debug.exit_code') as exit_code
-      from slice s
-      where s.category = 'buildprof.process'
-    `,
-  });
+  // Process, concurrency and insight tables live in the buildprof SQL package
+  // so the command line reads builds the same way.
+  await e.query(`INCLUDE PERFETTO MODULE buildprof.processes`);
 
   await createPerfettoTable({
     engine: e,
@@ -1043,58 +1021,16 @@ async function materialise(trace: Trace): Promise<number> {
     `,
   });
 
-  // Process identity comes from the first exec; exit status from the last.
+  // The package's processes, with the labels and directories the timeline shows.
   await createPerfettoTable({
     engine: e,
     name: T.life,
     as: `
-      with
-        span as (
-          -- ifnull: a trace recorded before fork-only processes were kept
-          -- carries neither annotation, and in those the recorder had already
-          -- reparented onto the nearest exec'd ancestor. Without the fallback
-          -- every ppid goes NULL, nothing has a parent, and every process
-          -- looks like a leaf -- which silently wrecks the occupancy track.
-          select pid, min(ifnull(build_ppid, ppid)) as ppid,
-                 min(ifnull(execed, 1)) as execed,
-                 min(ts) as ts,
-                 max(ts + dur) - min(ts) as dur,
-                 -- The slice a grid row jumps to: the process's first exec.
-                 min(slice_id) as slice_id
-          from ${T.seg} group by pid
-        ),
-        launched as (
-          select pid, tool, cmd, cwd,
-                 row_number() over (partition by pid order by ts asc) as rn
-          from ${T.seg}
-        ),
-        final as (
-          select pid, exit_code,
-                 row_number() over (partition by pid order by ts desc) as rn
-          from ${T.seg}
-        )
       select
-        span.pid as id,
-        span.pid as pid,
-        span.ppid as ppid,
-        span.execed as execed,
-        span.ts as ts,
-        span.dur as dur,
-        span.slice_id as slice_id,
-        launched.tool as tool,
-        final.exit_code as exit_code,
-        ${sliceLabelSql("launched.tool", "launched.cmd", "launched.cwd")} as name,
-        ${basenameSql("launched.cwd")} as dir
-      from span
-      join launched on launched.pid = span.pid and launched.rn = 1
-      join final on final.pid = span.pid and final.rn = 1
-      -- Build actions only. The forks that never exec'd are still in
-      -- __bt_segment for anyone who wants the raw process tree; this table is
-      -- the build-shaped view everything else is built on.
-      --
-      -- ifnull: traces recorded before the recorder kept fork-only processes
-      -- have no such annotation, and everything in them did exec.
-      where span.execed = 1
+        id, pid, ppid, execed, ts, dur, slice_id, tool, exit_code,
+        ${sliceLabelSql("tool", "cmd", "cwd")} as name,
+        ${basenameSql("cwd")} as dir
+      from buildprof_process
     `,
   });
 
@@ -1147,9 +1083,7 @@ async function materialise(trace: Trace): Promise<number> {
     as: `
       select l.*
       from ${T.life} l
-      left join (select distinct ppid as parent from ${T.life}) k
-        on k.parent = l.pid
-      where k.parent is null
+      join buildprof_leaf using (pid)
     `,
   });
 
@@ -1258,82 +1192,27 @@ function concurrencyColor(leafCount: number): ColorScheme {
 async function buildConcurrencyTrack(trace: Trace): Promise<void> {
   const e = trace.engine;
 
-  await createPerfettoTable({
-    engine: e,
-    name: T.occupancy,
-    as: `
-      with
-        child_intervals as (
-          select ppid, ts, ts + dur as end_ts,
-                 max(ts + dur) over (
-                   partition by ppid order by ts, pid
-                   rows between unbounded preceding and 1 preceding
-                 ) as previous_end
-          from ${T.life}
-          where ppid != 0
-        ),
-        marked_child_intervals as (
-          select *,
-                 iif(previous_end is null or ts > previous_end, 1, 0)
-                   as starts_group
-          from child_intervals
-        ),
-        grouped_child_intervals as (
-          select *,
-                 sum(starts_group) over (
-                   partition by ppid order by ts, end_ts
-                 ) as group_id
-          from marked_child_intervals
-        ),
-        -- A parent is removed from the leaf count once, even while several of
-        -- its children overlap. Merge those child lifetimes before emitting
-        -- the parent's counter deltas.
-        parent_covered as (
-          select ppid, min(ts) as ts, max(end_ts) as end_ts
-          from grouped_child_intervals
-          group by ppid, group_id
-        ),
-        events as (
-          select ts, 1 as delta from ${T.life}
-          union all select ts + dur, -1 from ${T.life}
-          union all select ts, -1 from parent_covered
-          union all select end_ts, 1 from parent_covered
-        ),
-        deltas as (
-          select ts, sum(delta) as delta from events group by ts
-        )
-      select row_number() over (order by ts) as id, ts,
-             sum(delta) over (order by ts) as value
-      from deltas
-    `,
-  });
-
+  await e.query(`INCLUDE PERFETTO MODULE buildprof.concurrency`);
   const peakRow = await e.query(
-    `select ifnull(max(value), 0) as peak from ${T.occupancy}`,
+    `select ifnull(max(value), 0) as peak from buildprof_concurrency`,
   );
   const peak = peakRow.firstRow({ peak: NUM }).peak;
 
-  // Turn every counter step into an exact phase lasting until the next change.
   await createPerfettoTable({
     engine: e,
     name: T.concurrency,
     as: `
-      with steps as (
-        select id, ts, value, lead(ts) over (order by ts) as next_ts
-        from ${T.occupancy}
-      )
       select
         id,
         ts,
-        next_ts - ts as dur,
+        dur,
         value,
         case
           when value = ${IDLE_LEAF_COUNT} then 'Idle'
           when value = ${SINGLE_LEAF_COUNT} then '1 active leaf process'
           else value || ' active leaf processes'
         end as name
-      from steps
-      where next_ts is not null and next_ts > ts
+      from buildprof_concurrency
     `,
   });
 
