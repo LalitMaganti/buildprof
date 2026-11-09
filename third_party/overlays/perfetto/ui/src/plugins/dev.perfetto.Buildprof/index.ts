@@ -339,10 +339,78 @@ async function registerDataLoss(trace: Trace): Promise<void> {
   });
 }
 
+/**
+ * Arguments from the link the UI was opened with, applied once to the first
+ * trace. Docs and posts use them to open a recording at a particular view:
+ *
+ * - `range=<start>-<end>`: zoom to that span, in seconds from the build start.
+ * - `process=<pid>`: select that process.
+ * - `arrows=1`: draw the selected process's dependencies on the timeline.
+ * - `open=deleted,touched`: expand those lists in the Files section.
+ *
+ * These are not a documented or stable API: they can change or go away at
+ * any time, and links using them may stop working.
+ */
+let pendingDeepLink: Record<string, unknown> | undefined;
+
+/** Lists in the Files section that a deep link asked to show expanded. */
+const deepLinkOpenChanges = new Set<ChangeKind>();
+
+async function applyDeepLink(
+  trace: Trace,
+  args: Record<string, unknown>,
+  dependencyArrows: DependencyArrows,
+): Promise<void> {
+  const arg = (key: string) => {
+    const value = args[key];
+    return typeof value === "string" ? value : undefined;
+  };
+  for (const name of (arg("open") ?? "").split(",")) {
+    if (name === "deleted") deepLinkOpenChanges.add("delete");
+    if (name === "touched") deepLinkOpenChanges.add("touch");
+  }
+  const pid = Number(arg("process"));
+  if (Number.isSafeInteger(pid) && pid > 0) {
+    const result = await trace.engine.query(
+      `select slice_id as id from ${T.life} where pid = ${pid} limit 1`,
+    );
+    if (result.numRows() > 0) {
+      await trace.selection.selectTrackEvent(
+        PROCESS_TRACK_URI,
+        result.firstRow({ id: NUM }).id,
+      );
+    }
+  }
+  if (args.arrows === "1" || args.arrows === true) {
+    dependencyArrows.setEnabled(true);
+  }
+  const range = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(arg("range") ?? "");
+  if (range !== null) {
+    const { start: first, end: last } = trace.traceInfo;
+    const at = (seconds: string | undefined) => {
+      const ts = first + BigInt(Math.round(Number(seconds) * 1e9));
+      return ts > last ? last : ts;
+    };
+    const start = at(range[1]);
+    const end = at(range[2]);
+    if (start < end) {
+      trace.scrollTo({
+        time: {
+          start: Time.fromRaw(start),
+          end: Time.fromRaw(end),
+          behavior: { viewPercentage: 1.0 },
+        },
+      });
+    }
+  }
+  trace.raf.scheduleFullRedraw();
+}
+
 export default class BuildprofPlugin implements PerfettoPlugin {
   static readonly id = "dev.perfetto.Buildprof";
 
   static onActivate(app: App): void {
+    pendingDeepLink = app.initialRouteArgs;
     // Buildprof owns the sidebar entry; CoreCommands retains the shortcut.
     app.sidebar.addMenuItem({
       section: "trace_files",
@@ -444,6 +512,14 @@ export default class BuildprofPlugin implements PerfettoPlugin {
     trace.tracks.registerOverlay(
       new RelatedEventsOverlay(trace, () => dependencyArrows.connections()),
     );
+
+    const deepLink = pendingDeepLink;
+    pendingDeepLink = undefined;
+    if (deepLink !== undefined) {
+      trace.onTraceReady.addListener(() =>
+        applyDeepLink(trace, deepLink, dependencyArrows),
+      );
+    }
   }
 }
 
@@ -2529,7 +2605,11 @@ class ProcessDetailsPanel implements TrackEventDetailsPanel {
     const rows = this.changes.filter((c) => c.kind === kind);
     return m(
       TreeNode,
-      { left: title, right: `${count}`, startsCollapsed: true },
+      {
+        left: title,
+        right: `${count}`,
+        startsCollapsed: !deepLinkOpenChanges.has(kind),
+      },
       ...rows.map((c) =>
         m(TreeNode, {
           left: plainLabel(m("span", { title: c.path }, elideFileName(c.path))),
