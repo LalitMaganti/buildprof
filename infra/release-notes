@@ -6,7 +6,9 @@
 
 dist's body (changelog, install, download table with checksums) is kept in
 that order. This adds a one-line description at the top, replaces the install
-section with the README's commands, and uses smaller headings throughout.
+section with the README's commands, and uses smaller headings throughout. It
+also joins the changelog's wrapped lines, because GitHub turns each line break
+in a release body into a break on the page.
 
 Usage: release-notes v0.2.2 < dist-notes.md > notes.md
 """
@@ -47,6 +49,36 @@ mise use -g github:LalitMaganti/buildprof
 """
 
 
+# Lines that start a block of their own, and are never joined onto the line
+# before them: headings, list items, tables, quotes, HTML, images and fences.
+BLOCK_START = re.compile(r"^\s*(#|[-*+] |\d+\. |\||>|<|!\[|```)")
+
+
+def unwrap(body: str) -> str:
+    """Joins each paragraph or list item onto one line."""
+    out: list[str] = []
+    in_fence = False
+    for line in body.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        previous = out[-1] if out else ""
+        if (
+            not in_fence
+            and line.strip()
+            and not BLOCK_START.match(line)
+            and previous.strip()
+            and not re.match(r"^\s*(#|\||<|!\[|```)", previous)
+            # A line ending in two spaces or a backslash asks for a break.
+            and not previous.endswith(("  ", "\\"))
+        ):
+            out[-1] = previous.rstrip() + " " + line.strip()
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -67,7 +99,7 @@ def main() -> int:
     if count != 1:
         sys.exit("no install section found in the release notes on stdin")
 
-    sys.stdout.write(TAGLINE + "\n" + body.lstrip("\n"))
+    sys.stdout.write(unwrap(TAGLINE + "\n" + body.lstrip("\n")))
     return 0
 
 
