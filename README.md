@@ -36,7 +36,9 @@ recording into an **interactive timeline** you can explore in the browser. Put
 - **Whatever your build system.** Buildprof follows processes rather than build
   systems, so Make, Ninja, CMake, Meson, Cargo, Go, npm, Bazel and Buck2 all
   work, as do the shell scripts, code generators and wrapper scripts they
-  launch.
+  launch. Every change is tested by recording a real build with each of them
+  on Linux; the [build systems page](docs/build-systems.md) lists what each
+  test covers.
 
 Recording requires Linux or macOS. You can explore recordings on any platform
 in the [web UI](https://buildprof.lalitm.com); trace data stays in your browser.
@@ -109,9 +111,6 @@ bottlenecks, following file dependencies, and checking whether a change helped.
   Your browser loads the recording from your own machine and processes it in
   the page, so the recording stays on your machine. A recording contains
   command lines and paths, so review it before sending it to anyone.
-- **Check the conformance suite.** Every change records a real build with each
-  supported build system and checks the resulting trace.
-  ([details](docs/build-systems.md))
 
 ## Why use Buildprof?
 
