@@ -32,4 +32,14 @@ small, so they show processes but not file accesses:
 - `node-noop-both-fixes.buildprof`: with the torque outputs fix as well,
   55 processes and nothing rebuilt.
 
+
+Two more no-op `make -j4` builds of Node.js, recorded with Buildprof 0.3.0
+with file events on, so they also show file accesses, deletes and timestamp
+changes. They were recompressed at zstd level 19:
+
+- `node-noop-file-events-before.buildprof`: unpatched, 3,001 processes over
+  61.6 s; at the end make deletes the five marker files that make the next
+  build run the generators again;
+- `node-noop-file-events-after.buildprof`: with the fixes, 54 processes over
+  2.4 s, and no torque run.
 These are not listed by `buildprof examples`.
