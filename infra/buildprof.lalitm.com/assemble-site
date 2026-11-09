@@ -32,6 +32,13 @@ EXAMPLES = ROOT / "examples"
 UI_ASSET = re.compile(r"^buildprof-ui-(v\d+\.\d+\.\d+)\.tar\.zst$")
 CACHE_CONTROL = "Cache-Control: public, max-age=31536000, immutable"
 ZSTD_MAGIC = bytes.fromhex("28b52ffd")
+NOT_FOUND_PAGE = """<!doctype html>
+<meta charset="utf-8">
+<title>Not found · Buildprof</title>
+<p>There is nothing at this address.</p>
+<p><a href="/">Open the Buildprof UI</a>. Each released version's UI is at
+<code>/v&lt;version&gt;/</code>, for example <code>/v0.2.8/</code>.</p>
+"""
 PAGES_ASSET_LIMIT = 25 * 1024 * 1024
 
 
@@ -119,6 +126,13 @@ def main() -> int:
             sys.exit(f"{recording} exceeds Cloudflare Pages' 25 MiB asset limit")
         shutil.copy2(recording, examples / recording.name)
     print(f"==> examples: {sorted(path.name for path in examples.iterdir())}")
+
+    # Without a top-level 404.html, Cloudflare Pages treats the site as a
+    # single-page app and answers every unknown path with the root page and a
+    # 200, so a link to a UI version that was never released, such as
+    # /v9.9.9/, silently opens the newest UI instead. The UI routes in the URL
+    # fragment and needs no fallback.
+    (site / "404.html").write_text(NOT_FOUND_PAGE)
 
     # A short, stable installer URL; GitHub's "latest" redirect keeps it
     # pointing at the newest release without a redeploy. The /diagnose/ links
