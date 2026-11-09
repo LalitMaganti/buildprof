@@ -7,14 +7,15 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-11-07
+## [0.3.0] - 2026-11-08
 
 We're excited to share Buildprof 0.3.0; the big new update in this release:
 buildprof can now record builds on macOS!
 
-Other improvements include: opening buildprof URLs from the command line,
-tracing Clang compiler details when it's run by absolute path, and much
-clearer guidance when the build profile might be missing or broken.
+Other improvements include: seeing which files a process deleted or touched,
+opening buildprof URLs from the command line, tracing Clang compiler details
+when it's run by absolute path, and much clearer guidance when the build
+profile might be missing or broken.
 
 ### Record builds on macOS
 
@@ -32,6 +33,15 @@ familiar timeline as on Linux!
   commands show only their program name. The
   [new data loss page](https://github.com/LalitMaganti/buildprof/blob/main/docs/data-loss.md#unknown-paths)
   explains these limitations.
+
+### See which files were deleted or touched
+
+buildprof now records when a process deletes a file or changes its timestamp,
+on both Linux and macOS. The UI lists these under "Deleted" and "Touched" in
+each process's Files section. This helps explain why a build system re-ran a
+step.
+
+![The rm step of a make build selected, with its Deleted list showing the file it removed and when](https://raw.githubusercontent.com/LalitMaganti/buildprof/main/docs/assets/deleted-files.png)
 
 ### Open a recording from a URL
 
