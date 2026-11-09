@@ -52,7 +52,7 @@ buildprof open clean-build.buildprof
 with the GitHub CLI; any other URL is downloaded with `curl`. Either way the
 recording is served from localhost like a local file and deleted afterwards.
 
-buildprof.lalitm.com only delivers the UI itself. Your browser fetches the
+buildprof.lalitm.com only serves the UI. Your browser fetches the
 recording from localhost and processes it entirely in the page; no trace data
 leaves your machine.
 
