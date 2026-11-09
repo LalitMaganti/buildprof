@@ -66,6 +66,8 @@ or Bazel daemon, the UI status bar now shows "Recording may be incomplete".
 The [data loss page](https://github.com/LalitMaganti/buildprof/blob/main/docs/data-loss.md#work-done-outside-the-build) explains
 each case.
 
+![The status bar's "Recording may be incomplete" warning opened, saying sccache ran during the build and handed work to a server Buildprof does not record](https://raw.githubusercontent.com/LalitMaganti/buildprof/main/docs/assets/incomplete-recording.png)
+
 ### Other changes
 
 - `--compiler-traces` keeps a compile's own `-ftime-trace` output, and no
